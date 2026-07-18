@@ -1,0 +1,37 @@
+# OneLedger
+
+OneLedger 是一款本地优先的 Android 个人记账应用骨架。第一阶段聚焦四件事：看账、记账、看资产、看趋势；数据默认只保存在设备的 Room/SQLite 数据库中，不要求登录或联网。
+
+## 技术基线
+
+- Kotlin + Jetpack Compose + Material 3
+- Room 2.8.4（金额使用 `Long` 分值存储，避免浮点误差）
+- MVVM + Repository + 单向数据流
+- 单 Activity、按功能分包；业务稳定后再拆 Gradle 模块
+- API 23+，compile/target SDK 36
+
+## 已落地范围
+
+- 账本：月预算卡、月份切换、按日分组账单、搜索入口、快速记账
+- 预算轨道：总预算与分类预算明细、预算进度、快捷金额编辑，本地写入 Room
+- 收支日历：月度双轨日历、每日收入/支出直览、点选日期查看账单
+- 资产：净资产、资产/负债摘要、本月流入/流出、账户列表
+- 存钱：四种计划入口、计划进度
+- 统计：时间范围切换、收支摘要、分类排行
+- 快速记账 Sheet：支出/收入、金额、分类、账户、备注，本地写入 Room
+- OneLedger「票据轨道」视觉语言：固定品牌页眉、预算轨道、资金脉冲、紧凑底栏
+- 深色与浅色设计系统、即时按压反馈、克制的选中态动效
+- 用户提供的 OneLedger 品牌图已接入页眉，启动图标使用同一蓝绿品牌语义重新绘制
+- 四个主页面与三个账本子页面的 Compose 截图基准和像素回归测试
+
+详细产品边界、数据模型和迭代路线见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## 运行
+
+用 Android Studio 打开项目，等待 Gradle Sync 后运行 `app`。命令行验证：
+
+```powershell
+.\gradlew.bat assembleDebug testDebugUnitTest lintDebug validateDebugScreenshotTest
+```
+
+界面发生确认过的改动后，可用 `updateDebugScreenshotTest` 更新七张基准图；日常提交只运行 `validateDebugScreenshotTest`，避免误覆盖视觉差异。
