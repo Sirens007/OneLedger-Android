@@ -1,8 +1,8 @@
 package com.oneledger.app.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import com.oneledger.app.R
 import com.oneledger.app.domain.model.AccountType
 import com.oneledger.app.ui.theme.BrandTeal
+import com.oneledger.app.ui.theme.OneLedgerMotion
 
 @Composable
 fun PressableSurface(
@@ -74,7 +75,14 @@ fun PressableSurface(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.97f else 1f,
-        animationSpec = if (isPressed) snap() else tween(160),
+        animationSpec = if (isPressed) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = OneLedgerMotion.NoBounceDamping,
+                stiffness = OneLedgerMotion.PressStiffness,
+            )
+        },
         label = "press-scale",
     )
     Surface(

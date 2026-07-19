@@ -1,7 +1,9 @@
 package com.oneledger.app.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -11,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.oneledger.app.data.local.TransactionListItem
 import com.oneledger.app.domain.model.TransactionType
@@ -62,6 +69,7 @@ import com.oneledger.app.ui.components.colorFromLong
 import com.oneledger.app.ui.theme.BrandBlue
 import com.oneledger.app.ui.theme.ExpenseCoral
 import com.oneledger.app.ui.theme.IncomeMint
+import com.oneledger.app.ui.theme.OneLedgerMotion
 import com.oneledger.app.util.MoneyFormatter
 import com.oneledger.app.util.MonthWindow
 import java.util.Calendar
@@ -82,7 +90,7 @@ fun StatisticsScreen(
     modifier: Modifier = Modifier,
     nowMillis: Long = System.currentTimeMillis(),
 ) {
-    var selectedRange by remember { mutableStateOf(StatsRange.MONTH) }
+    var selectedRange by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     val listState = rememberLazyListState()
     val now = remember(nowMillis) { nowMillis }
     val start = remember(selectedRange) { selectedRange.startMillis(now) }
@@ -207,44 +215,74 @@ fun StatisticsScreen(
 
 @Composable
 private fun RangeSelector(selected: StatsRange, onSelected: (StatsRange) -> Unit) {
-    Row(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
             .padding(3.dp),
     ) {
-        StatsRange.entries.forEach { range ->
-            val interaction = remember { MutableInteractionSource() }
-            val pressed by interaction.collectIsPressedAsState()
-            val scale by animateFloatAsState(
-                targetValue = if (pressed) 0.97f else 1f,
-                animationSpec = if (pressed) snap() else tween(160),
-                label = "stats-range-press",
-            )
-            val background by animateColorAsState(
-                targetValue = if (range == selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent,
-                animationSpec = tween(140),
-                label = "stats-range",
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .scale(scale)
-                    .background(background, RoundedCornerShape(15.dp))
-                    .semantics { this.selected = range == selected }
-                    .clickable(
-                        interactionSource = interaction,
-                        indication = null,
-                        role = Role.Tab,
-                    ) { onSelected(range) }
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    range.label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (range == selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        val itemWidth = maxWidth / StatsRange.entries.size
+        val indicatorOffset by animateDpAsState(
+            targetValue = itemWidth * StatsRange.entries.indexOf(selected),
+            animationSpec = spring(
+                dampingRatio = OneLedgerMotion.NoBounceDamping,
+                stiffness = OneLedgerMotion.NavigationStiffness,
+            ),
+            label = "stats-range-indicator",
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset { IntOffset(indicatorOffset.roundToPx(), 0) }
+                .width(itemWidth)
+                .height(36.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(15.dp)),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            StatsRange.entries.forEach { range ->
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val scale by animateFloatAsState(
+                    targetValue = if (pressed) 0.97f else 1f,
+                    animationSpec = if (pressed) {
+                        snap()
+                    } else {
+                        spring(
+                            dampingRatio = OneLedgerMotion.NoBounceDamping,
+                            stiffness = OneLedgerMotion.PressStiffness,
+                        )
+                    },
+                    label = "stats-range-press",
                 )
+                val content by animateColorAsState(
+                    targetValue = if (range == selected) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    animationSpec = tween(OneLedgerMotion.SelectionMillis),
+                    label = "stats-range-content",
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .scale(scale)
+                        .semantics { this.selected = range == selected }
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            role = Role.Tab,
+                        ) { onSelected(range) }
+                        .padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        range.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = content,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
         }
     }

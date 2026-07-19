@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -64,9 +65,13 @@ import com.oneledger.app.util.MoneyFormatter
 import com.oneledger.app.util.MonthWindow
 import com.oneledger.app.util.dayKey
 import com.oneledger.app.util.dayLabel
+import com.oneledger.app.util.calendarDateCells
+import com.oneledger.app.util.chineseCalendarLabel
 import com.oneledger.app.util.isIn
 import com.oneledger.app.util.monthLabel
 import com.oneledger.app.util.timeLabel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LedgerScreen(
@@ -80,6 +85,15 @@ fun LedgerScreen(
     var query by remember { mutableStateOf("") }
     var monthOffset by rememberSaveable { mutableIntStateOf(0) }
     val monthWindow = remember(monthOffset, nowMillis) { MonthWindow.offset(monthOffset, nowMillis) }
+    LaunchedEffect(monthOffset, nowMillis) {
+        withContext(Dispatchers.Default) {
+            (-1..1).forEach { adjacentOffset ->
+                MonthWindow.offset(monthOffset + adjacentOffset, nowMillis)
+                    .calendarDateCells()
+                    .forEach { it.startMillis.chineseCalendarLabel() }
+            }
+        }
+    }
     val monthTransactions = state.transactions.filter { it.occurredAt.isIn(monthWindow) }
     val visibleTransactions = monthTransactions.filter {
         query.isBlank() || it.categoryName.contains(query, ignoreCase = true) ||

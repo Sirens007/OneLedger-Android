@@ -1,9 +1,17 @@
 package com.oneledger.app.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +32,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
@@ -40,8 +47,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,12 +63,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,9 +88,9 @@ import com.oneledger.app.domain.model.NewTransaction
 import com.oneledger.app.domain.model.TransactionType
 import com.oneledger.app.ui.theme.BrandBlue
 import com.oneledger.app.ui.theme.BrandBlueLight
-import com.oneledger.app.ui.theme.BrandTeal
 import com.oneledger.app.ui.theme.ExpenseCoral
 import com.oneledger.app.ui.theme.IncomeMint
+import com.oneledger.app.ui.theme.OneLedgerMotion
 import com.oneledger.app.util.CalendarDateCell
 import com.oneledger.app.util.MoneyFormatter
 import com.oneledger.app.util.MonthWindow
@@ -150,7 +161,7 @@ private fun QuickAddContent(
     var accumulator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var pendingOperator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var note by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.note.orEmpty()) }
-    var showNote by rememberSaveable(editKey) { mutableStateOf(!initialTransaction?.note.isNullOrBlank()) }
+    var noteFocused by remember(editKey) { mutableStateOf(false) }
     var selectedCategoryId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.categoryId) }
     var selectedAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.accountId) }
     var selectedToAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.toAccountId) }
@@ -221,7 +232,6 @@ private fun QuickAddContent(
             accumulator = null
             pendingOperator = null
             note = ""
-            showNote = false
             occurredAt = nowMillis
         }
     }
@@ -233,29 +243,41 @@ private fun QuickAddContent(
     ) {
         QuickAddHeader(type = type, isEditing = isEditing, onTypeSelected = { type = it }, onDismiss = onDismiss)
         Spacer(Modifier.height(10.dp))
-        if (type == TransactionType.TRANSFER) {
-            TransferAccountSelector(
-                accounts = accounts,
-                fromAccountId = selectedAccountId,
-                toAccountId = selectedToAccountId,
-                onFromSelected = { selectedAccountId = it },
-                onToSelected = { selectedToAccountId = it },
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            CategoryGrid(
-                categories = categories,
-                selectedCategoryId = selectedCategoryId,
-                onSelected = { selectedCategoryId = it },
-                modifier = Modifier.weight(1f),
-            )
+        AnimatedContent(
+            targetState = type,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            transitionSpec = {
+                fadeIn(tween(OneLedgerMotion.ContentEnterMillis)) togetherWith
+                    fadeOut(tween(OneLedgerMotion.ContentExitMillis))
+            },
+            contentKey = { it },
+            label = "quick-add-type-content",
+        ) { activeType ->
+            if (activeType == TransactionType.TRANSFER) {
+                TransferAccountSelector(
+                    accounts = accounts,
+                    fromAccountId = selectedAccountId,
+                    toAccountId = selectedToAccountId,
+                    onFromSelected = { selectedAccountId = it },
+                    onToSelected = { selectedToAccountId = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                val activeCategories = if (activeType == TransactionType.EXPENSE) expenseCategories else incomeCategories
+                CategoryGrid(
+                    categories = activeCategories,
+                    selectedCategoryId = selectedCategoryId,
+                    onSelected = { selectedCategoryId = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         QuickOptionRow(
             accounts = accounts,
             selectedAccountId = selectedAccountId,
             onAccountSelected = { selectedAccountId = it },
-            noteEnabled = showNote,
-            onToggleNote = { showNote = !showNote },
             onDateClick = { showDateTimePicker = true },
         )
         Spacer(Modifier.height(8.dp))
@@ -264,9 +286,9 @@ private fun QuickAddContent(
             pendingOperator = pendingOperator,
             accent = accent,
             note = note,
-            showNote = showNote,
             occurredAt = occurredAt,
             onNoteChange = { if (it.length <= 60) note = it },
+            onNoteFocusChanged = { noteFocused = it },
             onDateClick = { showDateTimePicker = true },
         )
         if (!errorMessage.isNullOrBlank()) {
@@ -280,18 +302,33 @@ private fun QuickAddContent(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        Spacer(Modifier.height(10.dp))
-        CalculatorPad(
-            accent = accent,
-            canSave = canSave,
-            isEditing = isEditing,
-            onDigit = ::inputDigit,
-            onOperator = ::inputOperator,
-            onBackspace = { if (amount.isNotEmpty()) amount = amount.dropLast(1) },
-            onSaveAgain = { save(true) },
-            onDone = { save(false) },
-            onDelete = { showDeleteConfirm = true },
-        )
+        AnimatedVisibility(
+            visible = !noteFocused,
+            enter = fadeIn(tween(OneLedgerMotion.NavigationEnterMillis)) + expandVertically(
+                animationSpec = tween(OneLedgerMotion.NavigationEnterMillis),
+                expandFrom = Alignment.Bottom,
+            ),
+            exit = fadeOut(tween(OneLedgerMotion.NavigationExitMillis)) + shrinkVertically(
+                animationSpec = tween(OneLedgerMotion.NavigationExitMillis),
+                shrinkTowards = Alignment.Bottom,
+            ),
+            label = "calculator-visibility",
+        ) {
+            Column {
+                Spacer(Modifier.height(10.dp))
+                CalculatorPad(
+                    accent = accent,
+                    canSave = canSave,
+                    isEditing = isEditing,
+                    onDigit = ::inputDigit,
+                    onOperator = ::inputOperator,
+                    onBackspace = { if (amount.isNotEmpty()) amount = amount.dropLast(1) },
+                    onSaveAgain = { save(true) },
+                    onDone = { save(false) },
+                    onDelete = { showDeleteConfirm = true },
+                )
+            }
+        }
     }
 
     if (showDateTimePicker) {
@@ -506,8 +543,6 @@ private fun QuickOptionRow(
     accounts: List<AccountEntity>,
     selectedAccountId: String?,
     onAccountSelected: (String) -> Unit,
-    noteEnabled: Boolean,
-    onToggleNote: () -> Unit,
     onDateClick: () -> Unit,
 ) {
     val selectedIndex = accounts.indexOfFirst { it.id == selectedAccountId }.coerceAtLeast(0)
@@ -521,14 +556,6 @@ private fun QuickOptionRow(
                 onClick = {
                     if (accounts.isNotEmpty()) onAccountSelected(accounts[(selectedIndex + 1) % accounts.size].id)
                 },
-            )
-        }
-        item {
-            QuickOptionChip(
-                icon = Icons.AutoMirrored.Filled.Notes,
-                label = if (noteEnabled) "收起备注" else "填写备注",
-                accent = BrandTeal,
-                onClick = onToggleNote,
             )
         }
         item {
@@ -561,11 +588,12 @@ private fun AmountPanel(
     pendingOperator: String?,
     accent: Color,
     note: String,
-    showNote: Boolean,
     occurredAt: Long,
     onNoteChange: (String) -> Unit,
+    onNoteFocusChanged: (Boolean) -> Unit,
     onDateClick: () -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -608,32 +636,43 @@ private fun AmountPanel(
                         )
                     }
                 }
-                if (!showNote) {
-                    Text(
-                        "点击上方“填写备注”添加说明",
-                        modifier = Modifier.padding(start = 10.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            if (showNote) {
-                Spacer(Modifier.height(7.dp))
-                OutlinedTextField(
+                BasicTextField(
                     value = note,
                     onValueChange = onNoteChange,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    placeholder = { Text("点击填写备注") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = accent.copy(alpha = 0.65f),
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        .padding(start = 10.dp)
+                        .weight(1f)
+                        .onFocusChanged { onNoteFocusChanged(it.isFocused) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { focusManager.clearFocus() },
+                    ),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (note.isBlank()) {
+                                Text(
+                                    "点击填写备注",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
                 )
             }
         }

@@ -1,7 +1,19 @@
 package com.oneledger.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
@@ -13,15 +25,18 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,11 +60,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +78,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -76,6 +92,7 @@ import com.oneledger.app.ui.screens.StatisticsScreen
 import com.oneledger.app.ui.theme.BrandBlue
 import com.oneledger.app.ui.theme.BrandBlueLight
 import com.oneledger.app.ui.theme.BrandTeal
+import com.oneledger.app.ui.theme.OneLedgerMotion
 import com.oneledger.app.util.MonthWindow
 import kotlinx.coroutines.launch
 
@@ -246,6 +263,7 @@ internal fun OneLedgerFrame(
     BackHandler(enabled = destination == Destination.LEDGER && ledgerPage != LedgerPage.OVERVIEW) {
         onLedgerPageChanged(LedgerPage.OVERVIEW)
     }
+    val tabStateHolder = rememberSaveableStateHolder()
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -258,56 +276,151 @@ internal fun OneLedgerFrame(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            key(destination) {
-                when (destination) {
-                    Destination.LEDGER -> when (ledgerPage) {
-                        LedgerPage.OVERVIEW -> LedgerScreen(
+            AnimatedContent(
+                targetState = destination,
+                transitionSpec = {
+                    fadeIn(
+                        animationSpec = tween(
+                            durationMillis = OneLedgerMotion.ContentEnterMillis,
+                            delayMillis = 28,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ) togetherWith fadeOut(
+                        animationSpec = tween(OneLedgerMotion.ContentExitMillis),
+                    )
+                },
+                contentKey = { it },
+                label = "main-destination",
+            ) { activeDestination ->
+                tabStateHolder.SaveableStateProvider(activeDestination.name) {
+                    when (activeDestination) {
+                        Destination.LEDGER -> LedgerDestination(
                             state = state,
-                            nowMillis = nowMillis,
-                            onBudgetClick = { onLedgerPageChanged(LedgerPage.BUDGET) },
-                            onCalendarClick = { onLedgerPageChanged(LedgerPage.CALENDAR) },
-                            onTransactionClick = onTransactionClick,
-                        )
-                        LedgerPage.BUDGET -> BudgetDetailScreen(
-                            state = state,
-                            onBack = { onLedgerPageChanged(LedgerPage.OVERVIEW) },
-                            onSaveBudget = onBudgetSaved,
-                            nowMillis = nowMillis,
-                        )
-                        LedgerPage.CALENDAR -> IncomeExpenseCalendarScreen(
-                            state = state,
-                            onBack = { onLedgerPageChanged(LedgerPage.OVERVIEW) },
+                            ledgerPage = ledgerPage,
+                            onLedgerPageChanged = onLedgerPageChanged,
                             onQuickAdd = onQuickAdd,
                             onTransactionClick = onTransactionClick,
+                            onBudgetSaved = onBudgetSaved,
                             nowMillis = nowMillis,
                         )
+                        Destination.ASSETS -> AssetsScreen(state, nowMillis = nowMillis)
+                        Destination.SAVINGS -> SavingsScreen(state)
+                        Destination.STATISTICS -> StatisticsScreen(state, nowMillis = nowMillis)
                     }
-                    Destination.ASSETS -> AssetsScreen(state, nowMillis = nowMillis)
-                    Destination.SAVINGS -> SavingsScreen(state)
-                    Destination.STATISTICS -> StatisticsScreen(state, nowMillis = nowMillis)
                 }
             }
 
-            if (destination == Destination.LEDGER && ledgerPage == LedgerPage.OVERVIEW) {
+            AnimatedVisibility(
+                visible = destination == Destination.LEDGER && ledgerPage == LedgerPage.OVERVIEW,
+                modifier = Modifier.align(Alignment.BottomEnd),
+                enter = fadeIn(tween(OneLedgerMotion.ContentEnterMillis)) +
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = OneLedgerMotion.NoBounceDamping,
+                            stiffness = OneLedgerMotion.NavigationStiffness,
+                        ),
+                        initialOffsetY = { it / 3 },
+                    ),
+                exit = fadeOut(tween(OneLedgerMotion.ContentExitMillis)) +
+                    slideOutVertically(
+                        animationSpec = spring(
+                            dampingRatio = OneLedgerMotion.NoBounceDamping,
+                            stiffness = OneLedgerMotion.NavigationStiffness,
+                        ),
+                        targetOffsetY = { it / 3 },
+                    ),
+                label = "quick-add-visibility",
+            ) {
                 LiquidGlassAddButton(
                     onClick = onQuickAdd,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
                         .padding(end = 16.dp, bottom = 86.dp),
                 )
             }
 
-            if (destination != Destination.LEDGER || ledgerPage == LedgerPage.OVERVIEW) {
+            AnimatedVisibility(
+                visible = destination != Destination.LEDGER || ledgerPage == LedgerPage.OVERVIEW,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = fadeIn(tween(OneLedgerMotion.ContentEnterMillis)) +
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = OneLedgerMotion.NoBounceDamping,
+                            stiffness = OneLedgerMotion.NavigationStiffness,
+                        ),
+                        initialOffsetY = { it / 2 },
+                    ),
+                exit = fadeOut(tween(OneLedgerMotion.ContentExitMillis)) +
+                    slideOutVertically(
+                        animationSpec = spring(
+                            dampingRatio = OneLedgerMotion.NoBounceDamping,
+                            stiffness = OneLedgerMotion.NavigationStiffness,
+                        ),
+                        targetOffsetY = { it / 2 },
+                    ),
+                label = "bottom-bar-visibility",
+            ) {
                 OneLedgerBottomBar(
                     selected = destination,
                     onSelected = onDestinationSelected,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun LedgerDestination(
+    state: OneLedgerUiState,
+    ledgerPage: LedgerPage,
+    onLedgerPageChanged: (LedgerPage) -> Unit,
+    onQuickAdd: () -> Unit,
+    onTransactionClick: (String) -> Unit,
+    onBudgetSaved: (MonthWindow, String?, Long) -> Unit,
+    nowMillis: Long,
+) {
+    AnimatedContent(
+        targetState = ledgerPage,
+        transitionSpec = {
+            val isForward = targetState != LedgerPage.OVERVIEW
+            val enterOffset: (Int) -> Int = { width -> if (isForward) width / 12 else -width / 12 }
+            val exitOffset: (Int) -> Int = { width -> if (isForward) -width / 12 else width / 12 }
+            val positionSpec = spring<IntOffset>(
+                dampingRatio = OneLedgerMotion.NoBounceDamping,
+                stiffness = OneLedgerMotion.NavigationStiffness,
+            )
+            (fadeIn(tween(OneLedgerMotion.NavigationEnterMillis, easing = FastOutSlowInEasing)) +
+                slideInHorizontally(positionSpec, enterOffset)) togetherWith
+                (fadeOut(tween(OneLedgerMotion.NavigationExitMillis)) +
+                    slideOutHorizontally(positionSpec, exitOffset))
+        },
+        contentKey = { it },
+        label = "ledger-page",
+    ) { activePage ->
+        when (activePage) {
+            LedgerPage.OVERVIEW -> LedgerScreen(
+                state = state,
+                nowMillis = nowMillis,
+                onBudgetClick = { onLedgerPageChanged(LedgerPage.BUDGET) },
+                onCalendarClick = { onLedgerPageChanged(LedgerPage.CALENDAR) },
+                onTransactionClick = onTransactionClick,
+            )
+            LedgerPage.BUDGET -> BudgetDetailScreen(
+                state = state,
+                onBack = { onLedgerPageChanged(LedgerPage.OVERVIEW) },
+                onSaveBudget = onBudgetSaved,
+                nowMillis = nowMillis,
+            )
+            LedgerPage.CALENDAR -> IncomeExpenseCalendarScreen(
+                state = state,
+                onBack = { onLedgerPageChanged(LedgerPage.OVERVIEW) },
+                onQuickAdd = onQuickAdd,
+                onTransactionClick = onTransactionClick,
+                nowMillis = nowMillis,
+            )
         }
     }
 }
@@ -322,7 +435,14 @@ private fun LiquidGlassAddButton(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.96f else 1f,
-        animationSpec = if (pressed) snap() else tween(160),
+        animationSpec = if (pressed) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = OneLedgerMotion.NoBounceDamping,
+                stiffness = OneLedgerMotion.PressStiffness,
+            )
+        },
         label = "quick-add-press",
     )
     Surface(
@@ -386,6 +506,7 @@ private fun OneLedgerBottomBar(
     onSelected: (Destination) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val selectedIndex = Destination.entries.indexOf(selected)
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -399,18 +520,38 @@ private fun OneLedgerBottomBar(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 12.dp,
     ) {
-        Row(
-            modifier = Modifier.padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Destination.entries.forEach { destination ->
-                BottomBarItem(
-                    destination = destination,
-                    selected = destination == selected,
-                    onClick = { onSelected(destination) },
-                    modifier = Modifier.weight(1f),
-                )
+        BoxWithConstraints(modifier = Modifier.padding(4.dp)) {
+            val itemWidth = maxWidth / Destination.entries.size
+            val indicatorOffset by animateDpAsState(
+                targetValue = itemWidth * selectedIndex,
+                animationSpec = spring(
+                    dampingRatio = OneLedgerMotion.NoBounceDamping,
+                    stiffness = OneLedgerMotion.NavigationStiffness,
+                ),
+                label = "bottom-indicator-position",
+            )
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(indicatorOffset.roundToPx(), 0) }
+                    .width(itemWidth)
+                    .fillMaxHeight()
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                        RoundedCornerShape(20.dp),
+                    ),
+            )
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Destination.entries.forEach { destination ->
+                    BottomBarItem(
+                        destination = destination,
+                        selected = destination == selected,
+                        onClick = { onSelected(destination) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -427,17 +568,19 @@ private fun BottomBarItem(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = if (pressed) snap() else tween(160),
+        animationSpec = if (pressed) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = OneLedgerMotion.NoBounceDamping,
+                stiffness = OneLedgerMotion.PressStiffness,
+            )
+        },
         label = "bottom-item-press",
-    )
-    val background by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
-        animationSpec = tween(180),
-        label = "bottom-item-background",
     )
     val content by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(140),
+        animationSpec = tween(OneLedgerMotion.SelectionMillis),
         label = "bottom-item-content",
     )
     Column(
@@ -456,8 +599,7 @@ private fun BottomBarItem(
     ) {
         Box(
             modifier = Modifier
-                .size(30.dp)
-                .background(background, RoundedCornerShape(10.dp)),
+                .size(30.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(destination.icon, contentDescription = destination.label, tint = content, modifier = Modifier.size(20.dp))
@@ -468,14 +610,14 @@ private fun BottomBarItem(
             color = content,
             style = MaterialTheme.typography.bodyMedium,
             fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
         )
         Box(
             modifier = Modifier
                 .padding(top = 2.dp)
                 .width(16.dp)
                 .height(2.dp)
-                .background(if (selected) BrandTeal else Color.Transparent, CircleShape),
+                .background(content.copy(alpha = if (selected) 1f else 0f), CircleShape),
         )
     }
 }
