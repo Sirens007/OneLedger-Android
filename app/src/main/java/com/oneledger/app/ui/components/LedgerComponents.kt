@@ -89,7 +89,7 @@ fun PressableSurface(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interactionSource,
-        modifier = modifier.scale(scale),
+        modifier = if (scale == 1f) modifier else modifier.scale(scale),
         color = color,
         shape = shape,
         content = content,

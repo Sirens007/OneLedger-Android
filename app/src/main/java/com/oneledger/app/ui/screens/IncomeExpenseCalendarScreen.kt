@@ -87,6 +87,11 @@ import kotlinx.coroutines.withContext
 private const val CalendarPageCount = Int.MAX_VALUE
 private const val CalendarInitialPage = CalendarPageCount / 2
 
+private data class CalendarDaySummary(
+    val expenseMinor: Long,
+    val incomeMinor: Long,
+)
+
 @Composable
 fun IncomeExpenseCalendarScreen(
     state: OneLedgerUiState,
@@ -122,6 +127,23 @@ fun IncomeExpenseCalendarScreen(
     }
     val transactionsByDay = remember(state.transactions) {
         state.transactions.groupBy { it.occurredAt.dayKey() }
+    }
+    val summariesByDay = remember(transactionsByDay) {
+        transactionsByDay.mapValues { (_, transactions) ->
+            var expenseMinor = 0L
+            var incomeMinor = 0L
+            transactions.forEach { transaction ->
+                when (transaction.type) {
+                    TransactionType.EXPENSE -> expenseMinor += transaction.amountMinor
+                    TransactionType.INCOME -> incomeMinor += transaction.amountMinor
+                    TransactionType.TRANSFER -> Unit
+                }
+            }
+            CalendarDaySummary(
+                expenseMinor = expenseMinor,
+                incomeMinor = incomeMinor,
+            )
+        }
     }
     val visibleMonthOffset = pagerState.currentPage - CalendarInitialPage
     val visibleMonthWindow = remember(visibleMonthOffset, nowMillis) {
@@ -210,7 +232,7 @@ fun IncomeExpenseCalendarScreen(
                     ) {
                         CalendarGrid(
                             cells = pageCells,
-                            transactionsByDay = transactionsByDay,
+                            summariesByDay = summariesByDay,
                             chineseLabels = chineseLabels,
                             selectedDayStart = pageSelectedDayStart,
                             onDaySelected = { selectedDayStart = it },
@@ -335,7 +357,7 @@ private fun CalendarArrow(
 @Composable
 private fun CalendarGrid(
     cells: List<CalendarDateCell>,
-    transactionsByDay: Map<String, List<TransactionListItem>>,
+    summariesByDay: Map<String, CalendarDaySummary>,
     chineseLabels: Map<Long, ChineseCalendarLabel>,
     selectedDayStart: Long,
     onDaySelected: (Long) -> Unit,
@@ -363,14 +385,12 @@ private fun CalendarGrid(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 week.forEach { cell ->
-                    val transactions = transactionsByDay[cell.startMillis.dayKey()].orEmpty()
-                    val expense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
-                    val income = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountMinor }
+                    val summary = summariesByDay[cell.startMillis.dayKey()]
                     CalendarDayCell(
                         cell = cell,
                         chineseLabel = chineseLabels[cell.startMillis],
-                        expenseMinor = expense,
-                        incomeMinor = income,
+                        expenseMinor = summary?.expenseMinor ?: 0,
+                        incomeMinor = summary?.incomeMinor ?: 0,
                         selected = selectedDayStart == cell.startMillis,
                         onClick = { if (cell.inCurrentMonth) onDaySelected(cell.startMillis) },
                         modifier = Modifier.weight(1f),

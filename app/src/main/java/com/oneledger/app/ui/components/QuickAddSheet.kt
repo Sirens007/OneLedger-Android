@@ -3,10 +3,8 @@ package com.oneledger.app.ui.components
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -105,6 +103,11 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+private enum class QuickAddInputMode {
+    AMOUNT,
+    NOTE,
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickAddSheet(
@@ -122,6 +125,7 @@ fun QuickAddSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetGesturesEnabled = false,
         containerColor = MaterialTheme.colorScheme.background,
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
         dragHandle = null,
@@ -165,7 +169,7 @@ private fun QuickAddContent(
     var accumulator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var pendingOperator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var note by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.note.orEmpty()) }
-    var noteFocused by remember(editKey) { mutableStateOf(false) }
+    var inputMode by remember(editKey) { mutableStateOf(QuickAddInputMode.AMOUNT) }
     var selectedCategoryId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.categoryId) }
     var selectedAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.accountId) }
     var selectedToAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.toAccountId) }
@@ -292,11 +296,18 @@ private fun QuickAddContent(
             note = note,
             occurredAt = occurredAt,
             onNoteChange = { if (it.length <= 60) note = it },
-            onNoteFocusChanged = { noteFocused = it },
+            onNoteFocusChanged = { focused ->
+                if (focused) inputMode = QuickAddInputMode.NOTE
+            },
             onAmountClick = {
+                inputMode = QuickAddInputMode.AMOUNT
                 focusManager.clearFocus(force = true)
                 keyboardController?.hide()
-                noteFocused = false
+            },
+            onNoteDone = {
+                inputMode = QuickAddInputMode.AMOUNT
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
             },
             onDateClick = { showDateTimePicker = true },
         )
@@ -312,15 +323,9 @@ private fun QuickAddContent(
             )
         }
         AnimatedVisibility(
-            visible = !noteFocused,
-            enter = fadeIn(tween(OneLedgerMotion.NavigationEnterMillis)) + expandVertically(
-                animationSpec = tween(OneLedgerMotion.NavigationEnterMillis),
-                expandFrom = Alignment.Bottom,
-            ),
-            exit = fadeOut(tween(OneLedgerMotion.NavigationExitMillis)) + shrinkVertically(
-                animationSpec = tween(OneLedgerMotion.NavigationExitMillis),
-                shrinkTowards = Alignment.Bottom,
-            ),
+            visible = inputMode == QuickAddInputMode.AMOUNT,
+            enter = fadeIn(tween(OneLedgerMotion.NavigationEnterMillis)),
+            exit = fadeOut(tween(OneLedgerMotion.NavigationExitMillis)),
             label = "calculator-visibility",
         ) {
             Column {
@@ -601,9 +606,9 @@ private fun AmountPanel(
     onNoteChange: (String) -> Unit,
     onNoteFocusChanged: (Boolean) -> Unit,
     onAmountClick: () -> Unit,
+    onNoteDone: () -> Unit,
     onDateClick: () -> Unit,
 ) {
-    val focusManager = LocalFocusManager.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -671,7 +676,7 @@ private fun AmountPanel(
                         imeAction = ImeAction.Done,
                     ),
                     keyboardActions = KeyboardActions(
-                        onDone = { focusManager.clearFocus() },
+                        onDone = { onNoteDone() },
                     ),
                     decorationBox = { innerTextField ->
                         Box(
