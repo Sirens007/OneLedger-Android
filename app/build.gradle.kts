@@ -72,6 +72,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.lunar.calendar)
 
     testImplementation(libs.junit)
     screenshotTestImplementation(libs.screenshot.validation.api)

@@ -11,6 +11,7 @@ coreKtx = "1.18.0"
 coroutines = "1.10.2"
 junit = "4.13.2"
 screenshot = "0.0.1-alpha15"
+lunar = "1.7.7"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -32,6 +33,7 @@ androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref =
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 junit = { module = "junit:junit", version.ref = "junit" }
 screenshot-validation-api = { module = "com.android.tools.screenshot:screenshot-validation-api", version.ref = "screenshot" }
+lunar-calendar = { module = "cn.6tail:lunar", version.ref = "lunar" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

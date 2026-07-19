@@ -61,6 +61,7 @@ import com.oneledger.app.util.CalendarDateCell
 import com.oneledger.app.util.MoneyFormatter
 import com.oneledger.app.util.MonthWindow
 import com.oneledger.app.util.calendarDateCells
+import com.oneledger.app.util.chineseCalendarLabel
 import com.oneledger.app.util.dayKey
 import com.oneledger.app.util.dayLabel
 import com.oneledger.app.util.isIn
@@ -251,10 +252,10 @@ private fun CalendarGrid(
     selectedDayStart: Long,
     onDaySelected: (Long) -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = 10.dp, vertical = 14.dp)) {
+    Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             listOf("日", "一", "二", "三", "四", "五", "六").forEach { day ->
                 Text(
@@ -266,12 +267,12 @@ private fun CalendarGrid(
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         cells.chunked(7).forEachIndexed { rowIndex, week ->
-            if (rowIndex > 0) Spacer(Modifier.height(4.dp))
+            if (rowIndex > 0) Spacer(Modifier.height(3.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 week.forEach { cell ->
                     val transactions = transactionsByDay[cell.startMillis.dayKey()].orEmpty()
@@ -288,7 +289,7 @@ private fun CalendarGrid(
                 }
             }
         }
-        Spacer(Modifier.height(11.dp))
+        Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("底色表示当日净收支：", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box(Modifier.size(6.dp).background(ExpenseCoral, CircleShape))
@@ -310,6 +311,7 @@ private fun CalendarDayCell(
     modifier: Modifier = Modifier,
 ) {
     val hasTransactions = expenseMinor > 0 || incomeMinor > 0
+    val chineseLabel = remember(cell.startMillis) { cell.startMillis.chineseCalendarLabel() }
     val targetBackground = when {
         !cell.inCurrentMonth -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
         selected -> BrandBlue.copy(alpha = 0.68f)
@@ -325,14 +327,14 @@ private fun CalendarDayCell(
     PressableSurface(
         onClick = onClick,
         enabled = cell.inCurrentMonth,
-        modifier = modifier.height(66.dp),
+        modifier = modifier.height(58.dp),
         color = background,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(11.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 3.dp, vertical = 5.dp),
+                .padding(horizontal = 2.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -365,7 +367,23 @@ private fun CalendarDayCell(
                     maxLines = 1,
                 )
             } else {
-                Spacer(Modifier.height(20.dp))
+                Box(modifier = Modifier.height(20.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = chineseLabel.text,
+                        color = when {
+                            selected -> Color.White.copy(alpha = 0.78f)
+                            cell.inCurrentMonth -> MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                alpha = if (chineseLabel.isFestival) 0.86f else 0.70f,
+                            )
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.28f)
+                        },
+                        fontSize = 9.sp,
+                        lineHeight = 10.sp,
+                        fontWeight = if (chineseLabel.isFestival) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
