@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,9 +35,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,6 +72,10 @@ import com.oneledger.app.util.nextLocalDayStart
 import com.oneledger.app.util.startOfLocalDay
 import com.oneledger.app.util.timeLabel
 import java.text.DecimalFormat
+import kotlinx.coroutines.launch
+
+private const val CalendarPageCount = Int.MAX_VALUE
+private const val CalendarInitialPage = CalendarPageCount / 2
 
 @Composable
 fun IncomeExpenseCalendarScreen(
@@ -79,23 +85,32 @@ fun IncomeExpenseCalendarScreen(
     modifier: Modifier = Modifier,
     nowMillis: Long = System.currentTimeMillis(),
     initialSelectedDayStart: Long? = null,
+    initialMonthOffset: Int = 0,
 ) {
-    var monthOffset by rememberSaveable { mutableIntStateOf(0) }
-    val monthWindow = remember(monthOffset, nowMillis) { MonthWindow.offset(monthOffset, nowMillis) }
-    var selectedDayStart by rememberSaveable(monthWindow.start, initialSelectedDayStart) {
+    val initialPage = remember(initialMonthOffset) {
+        (CalendarInitialPage + initialMonthOffset).coerceIn(0, CalendarPageCount - 1)
+    }
+    val pagerState = rememberPagerState(
+        initialPage = initialPage,
+        pageCount = { CalendarPageCount },
+    )
+    val scope = rememberCoroutineScope()
+    val settledMonthOffset = pagerState.settledPage - CalendarInitialPage
+    val settledMonthWindow = remember(settledMonthOffset, nowMillis) {
+        MonthWindow.offset(settledMonthOffset, nowMillis)
+    }
+    var selectedDayStart by rememberSaveable(settledMonthWindow.start, initialSelectedDayStart) {
         val requestedDay = initialSelectedDayStart?.startOfLocalDay()
         mutableLongStateOf(
             when {
-                requestedDay != null && requestedDay.isIn(monthWindow) -> requestedDay
-                nowMillis.isIn(monthWindow) -> nowMillis.startOfLocalDay()
-                else -> monthWindow.start
+                requestedDay != null && requestedDay.isIn(settledMonthWindow) -> requestedDay
+                nowMillis.isIn(settledMonthWindow) -> nowMillis.startOfLocalDay()
+                else -> settledMonthWindow.start
             },
         )
     }
-    val cells = remember(monthWindow) { monthWindow.calendarDateCells() }
-    val transactionsByDay = state.transactions.groupBy { it.occurredAt.dayKey() }
-    val selectedTransactions = state.transactions.filter {
-        it.occurredAt >= selectedDayStart && it.occurredAt < selectedDayStart.nextLocalDayStart()
+    val transactionsByDay = remember(state.transactions) {
+        state.transactions.groupBy { it.occurredAt.dayKey() }
     }
 
     Column(
@@ -108,44 +123,70 @@ fun IncomeExpenseCalendarScreen(
             onQuickAdd = onQuickAdd,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp),
         )
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                CalendarMonthHeader(
-                    label = monthWindow.monthLabel(),
-                    canMoveForward = monthOffset < 0,
-                    onPrevious = { monthOffset -= 1 },
-                    onNext = { monthOffset += 1 },
-                )
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            beyondViewportPageCount = 1,
+            key = { it },
+        ) { page ->
+            val pageMonthOffset = page - CalendarInitialPage
+            val pageMonthWindow = remember(pageMonthOffset, nowMillis) {
+                MonthWindow.offset(pageMonthOffset, nowMillis)
             }
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-                            RoundedCornerShape(26.dp),
-                        ),
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(26.dp),
-                ) {
-                    CalendarGrid(
-                        cells = cells,
-                        transactionsByDay = transactionsByDay,
-                        selectedDayStart = selectedDayStart,
-                        onDaySelected = { selectedDayStart = it },
+            val pageCells = remember(pageMonthWindow) { pageMonthWindow.calendarDateCells() }
+            val pageSelectedDayStart = if (page == pagerState.settledPage) {
+                selectedDayStart
+            } else {
+                pageMonthWindow.defaultSelectedDay(nowMillis)
+            }
+            val pageSelectedTransactions = state.transactions.filter {
+                it.occurredAt >= pageSelectedDayStart &&
+                    it.occurredAt < pageSelectedDayStart.nextLocalDayStart()
+            }
+
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    CalendarMonthHeader(
+                        label = pageMonthWindow.monthLabel(),
+                        onPrevious = {
+                            scope.launch { pagerState.animateScrollToPage(pagerState.settledPage - 1) }
+                        },
+                        onNext = {
+                            scope.launch { pagerState.animateScrollToPage(pagerState.settledPage + 1) }
+                        },
                     )
                 }
-            }
-            item {
-                SelectedDayTransactions(
-                    dayStart = selectedDayStart,
-                    transactions = selectedTransactions,
-                )
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                                RoundedCornerShape(26.dp),
+                            ),
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(26.dp),
+                    ) {
+                        CalendarGrid(
+                            cells = pageCells,
+                            transactionsByDay = transactionsByDay,
+                            selectedDayStart = pageSelectedDayStart,
+                            onDaySelected = { selectedDayStart = it },
+                        )
+                    }
+                }
+                item {
+                    SelectedDayTransactions(
+                        dayStart = pageSelectedDayStart,
+                        transactions = pageSelectedTransactions,
+                    )
+                }
             }
         }
     }
@@ -201,7 +242,6 @@ private fun CalendarTopBar(
 @Composable
 private fun CalendarMonthHeader(
     label: String,
-    canMoveForward: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
@@ -209,14 +249,14 @@ private fun CalendarMonthHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CalendarArrow(Icons.Default.ChevronLeft, "上个月", true, onPrevious)
+        CalendarArrow(Icons.Default.ChevronLeft, "上个月", onPrevious)
         Text(
             label,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center,
         )
-        CalendarArrow(Icons.Default.ChevronRight, "下个月", canMoveForward, onNext)
+        CalendarArrow(Icons.Default.ChevronRight, "下个月", onNext)
     }
 }
 
@@ -224,14 +264,12 @@ private fun CalendarMonthHeader(
 private fun CalendarArrow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
-    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     PressableSurface(
         onClick = onClick,
-        enabled = enabled,
         modifier = Modifier.size(36.dp),
-        color = BrandBlue.copy(alpha = if (enabled) 1f else 0.14f),
+        color = BrandBlue,
         shape = CircleShape,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -239,7 +277,7 @@ private fun CalendarArrow(
                 icon,
                 contentDescription = description,
                 modifier = Modifier.size(20.dp),
-                tint = Color.White.copy(alpha = if (enabled) 1f else 0.32f),
+                tint = Color.White,
             )
         }
     }
@@ -477,3 +515,7 @@ private fun Long.calendarAmount(): String {
 }
 
 private fun TransactionListItem.timeLabelSafe(): String = occurredAt.timeLabel()
+
+private fun MonthWindow.defaultSelectedDay(nowMillis: Long): Long {
+    return if (nowMillis.isIn(this)) nowMillis.startOfLocalDay() else start
+}

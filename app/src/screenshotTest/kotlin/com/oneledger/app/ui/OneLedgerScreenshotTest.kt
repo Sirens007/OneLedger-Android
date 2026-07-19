@@ -84,6 +84,23 @@ fun IncomeExpenseCalendarSelectedDayScreenshot() {
 }
 
 @PreviewTest
+@Preview(name = "收支日历 · 未来月份", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
+@Composable
+fun IncomeExpenseCalendarFutureMonthScreenshot() {
+    OneLedgerTheme(darkTheme = true) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            IncomeExpenseCalendarScreen(
+                state = previewState(),
+                onBack = {},
+                onQuickAdd = {},
+                nowMillis = PREVIEW_NOW,
+                initialMonthOffset = 1,
+            )
+        }
+    }
+}
+
+@PreviewTest
 @Preview(name = "快速记账 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
 @Composable
 fun QuickAddScreenshot() {

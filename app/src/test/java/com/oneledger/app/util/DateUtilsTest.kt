@@ -24,6 +24,24 @@ class DateUtilsTest {
     }
 
     @Test
+    fun offsetBuildsFutureCalendarMonth() {
+        val now = Calendar.getInstance().apply {
+            set(2026, Calendar.JULY, 18, 12, 30, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        val window = MonthWindow.offset(monthOffset = 18, now = now)
+        val start = Calendar.getInstance().apply { timeInMillis = window.start }
+        val end = Calendar.getInstance().apply { timeInMillis = window.endExclusive }
+
+        assertEquals(2028, start.get(Calendar.YEAR))
+        assertEquals(Calendar.JANUARY, start.get(Calendar.MONTH))
+        assertEquals(1, start.get(Calendar.DAY_OF_MONTH))
+        assertEquals(Calendar.FEBRUARY, end.get(Calendar.MONTH))
+        assertEquals(1, end.get(Calendar.DAY_OF_MONTH))
+    }
+
+    @Test
     fun calendarGridStartsOnSundayAndAlwaysContainsSixWeeks() {
         val now = Calendar.getInstance().apply {
             set(2026, Calendar.JULY, 18, 12, 30, 0)
