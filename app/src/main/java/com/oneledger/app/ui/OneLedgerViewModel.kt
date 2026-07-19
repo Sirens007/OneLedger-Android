@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.oneledger.app.data.local.AccountEntity
+import com.oneledger.app.data.local.AccountBalanceItem
 import com.oneledger.app.data.local.BudgetEntity
 import com.oneledger.app.data.local.CategoryEntity
 import com.oneledger.app.data.local.SavingsPlanEntity
@@ -18,7 +19,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class OneLedgerUiState(
+    val activeBookId: String = "",
     val accounts: List<AccountEntity> = emptyList(),
+    val accountBalances: List<AccountBalanceItem> = emptyList(),
     val transactions: List<TransactionListItem> = emptyList(),
     val budgets: List<BudgetEntity> = emptyList(),
     val savingsPlans: List<SavingsPlanEntity> = emptyList(),
@@ -28,6 +31,7 @@ data class OneLedgerUiState(
 
 private data class LedgerData(
     val accounts: List<AccountEntity>,
+    val accountBalances: List<AccountBalanceItem>,
     val transactions: List<TransactionListItem>,
     val budgets: List<BudgetEntity>,
 )
@@ -43,10 +47,11 @@ class OneLedgerViewModel(
 ) : ViewModel() {
     private val ledgerData = combine(
         repository.accounts,
+        repository.accountBalances,
         repository.transactions,
         repository.budgets,
-    ) { accounts, transactions, budgets ->
-        LedgerData(accounts, transactions, budgets)
+    ) { accounts, accountBalances, transactions, budgets ->
+        LedgerData(accounts, accountBalances, transactions, budgets)
     }
 
     private val planningData = combine(
@@ -57,9 +62,11 @@ class OneLedgerViewModel(
         PlanningData(plans, expenseCategories, incomeCategories)
     }
 
-    val uiState = combine(ledgerData, planningData) { ledger, planning ->
+    val uiState = combine(ledgerData, planningData, repository.activeBookId) { ledger, planning, activeBookId ->
         OneLedgerUiState(
+            activeBookId = activeBookId,
             accounts = ledger.accounts,
+            accountBalances = ledger.accountBalances,
             transactions = ledger.transactions,
             budgets = ledger.budgets,
             savingsPlans = planning.plans,
@@ -80,6 +87,10 @@ class OneLedgerViewModel(
         viewModelScope.launch {
             onSaved(repository.addTransaction(transaction))
         }
+    }
+
+    fun selectBook(bookId: String, onComplete: (Result<Unit>) -> Unit = {}) = runMutation(onComplete) {
+        repository.selectBook(bookId)
     }
 
     fun undoTransaction(id: String) {

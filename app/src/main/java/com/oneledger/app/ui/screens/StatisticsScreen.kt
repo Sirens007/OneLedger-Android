@@ -72,6 +72,8 @@ import com.oneledger.app.ui.theme.IncomeMint
 import com.oneledger.app.ui.theme.OneLedgerMotion
 import com.oneledger.app.util.MoneyFormatter
 import com.oneledger.app.util.MonthWindow
+import com.oneledger.app.util.inclusiveLocalDayCount
+import com.oneledger.app.util.localYear
 import java.util.Calendar
 
 private enum class StatsRange(val label: String) {
@@ -93,11 +95,17 @@ fun StatisticsScreen(
     var selectedRange by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     val listState = rememberLazyListState()
     val now = remember(nowMillis) { nowMillis }
-    val start = remember(selectedRange) { selectedRange.startMillis(now) }
-    val transactions = state.transactions.filter { it.occurredAt >= start }
+    val start = remember(selectedRange, now) { selectedRange.startMillis(now) }
+    val transactions = state.transactions.filter { it.occurredAt in start..now }
     val expense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
     val income = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountMinor }
-    val days = selectedRange.dayDivisor(now).coerceAtLeast(1)
+    val earliestTransactionAt = transactions.minOfOrNull { it.occurredAt }
+    val days = remember(selectedRange, now, earliestTransactionAt) {
+        selectedRange.dayDivisor(
+            now = now,
+            earliestTransactionAt = earliestTransactionAt,
+        ).coerceAtLeast(1)
+    }
     val categoryTotals = transactions
         .filter { it.type == TransactionType.EXPENSE }
         .groupBy { it.categoryName }
@@ -381,16 +389,15 @@ private fun StatsRange.startMillis(now: Long): Long = when (this) {
     StatsRange.ALL -> Long.MIN_VALUE
 }
 
-private fun StatsRange.dayDivisor(now: Long): Long = when (this) {
+private fun StatsRange.dayDivisor(now: Long, earliestTransactionAt: Long?): Long = when (this) {
     StatsRange.WEEK -> 7
-    StatsRange.MONTH -> Calendar.getInstance().get(Calendar.DAY_OF_MONTH).toLong()
-    StatsRange.YEAR -> Calendar.getInstance().get(Calendar.DAY_OF_YEAR).toLong()
-    StatsRange.ALL -> 30
+    StatsRange.MONTH, StatsRange.YEAR -> inclusiveLocalDayCount(startMillis(now), now)
+    StatsRange.ALL -> earliestTransactionAt?.let { inclusiveLocalDayCount(it, now) } ?: 1
 }
 
 private fun StatsRange.rangeLabel(now: Long): String = when (this) {
     StatsRange.WEEK -> "最近 7 天"
     StatsRange.MONTH -> "本月"
-    StatsRange.YEAR -> "${Calendar.getInstance().get(Calendar.YEAR)} 年"
+    StatsRange.YEAR -> "${now.localYear()} 年"
     StatsRange.ALL -> "全部时间"
 }

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.oneledger.app.data.local.AccountEntity
+import com.oneledger.app.data.local.AccountBalanceItem
 import com.oneledger.app.data.local.BudgetEntity
 import com.oneledger.app.data.local.CategoryEntity
 import com.oneledger.app.data.local.SavingsPlanEntity
@@ -260,7 +261,13 @@ private fun previewState(): OneLedgerUiState {
     )
 
     return OneLedgerUiState(
+        activeBookId = bookId,
         accounts = accounts,
+        accountBalances = listOf(
+            AccountBalanceItem(accountId = "daily-card", currentBalanceMinor = 838_420),
+            AccountBalanceItem(accountId = "cash", currentBalanceMinor = 85_100),
+            AccountBalanceItem(accountId = "credit", currentBalanceMinor = -61_500),
+        ),
         transactions = transactions,
         budgets = listOf(
             BudgetEntity(

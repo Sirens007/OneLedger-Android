@@ -34,6 +34,38 @@ data class MonthWindow(
     }
 }
 
+fun MonthWindow.remainingDayCount(now: Long): Long = when {
+    now >= endExclusive -> 0
+    now < start -> inclusiveLocalDayCount(start, endExclusive - 1)
+    else -> inclusiveLocalDayCount(now, endExclusive - 1)
+}
+
+fun inclusiveLocalDayCount(startMillis: Long, endMillis: Long): Long {
+    if (endMillis < startMillis) return 0
+    val cursor = Calendar.getInstance().apply {
+        timeInMillis = startMillis
+        set(Calendar.HOUR_OF_DAY, 12)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    val end = Calendar.getInstance().apply {
+        timeInMillis = endMillis
+        set(Calendar.HOUR_OF_DAY, 12)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    var days = 1L
+    while (cursor.before(end)) {
+        cursor.add(Calendar.DAY_OF_YEAR, 1)
+        days += 1
+    }
+    return days
+}
+
+fun Long.localYear(): Int = Calendar.getInstance().apply { timeInMillis = this@localYear }.get(Calendar.YEAR)
+
 fun Long.isIn(window: MonthWindow): Boolean = this >= window.start && this < window.endExclusive
 
 fun Long.dayKey(): String = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(this))

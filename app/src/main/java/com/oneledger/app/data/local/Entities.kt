@@ -15,6 +15,8 @@ data class LedgerBookEntity(
     val updatedAt: Long,
 )
 
+const val TOTAL_BUDGET_SCOPE = "__TOTAL__"
+
 @Entity(
     tableName = "accounts",
     foreignKeys = [
@@ -84,6 +86,18 @@ data class CategoryEntity(
             childColumns = ["accountId"],
             onDelete = ForeignKey.NO_ACTION,
         ),
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["toAccountId"],
+            onDelete = ForeignKey.NO_ACTION,
+        ),
+        ForeignKey(
+            entity = CategoryEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.NO_ACTION,
+        ),
     ],
     indices = [
         Index("bookId"),
@@ -121,13 +135,24 @@ data class TransactionEntity(
             childColumns = ["bookId"],
             onDelete = ForeignKey.CASCADE,
         ),
+        ForeignKey(
+            entity = CategoryEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.NO_ACTION,
+        ),
     ],
-    indices = [Index("bookId"), Index("categoryId")],
+    indices = [
+        Index("bookId"),
+        Index("categoryId"),
+        Index(value = ["bookId", "scopeKey", "periodStart", "periodEnd"], unique = true),
+    ],
 )
 data class BudgetEntity(
     @PrimaryKey val id: String,
     val bookId: String,
     val categoryId: String? = null,
+    val scopeKey: String = categoryId ?: TOTAL_BUDGET_SCOPE,
     val periodStart: Long,
     val periodEnd: Long,
     val limitMinor: Long,

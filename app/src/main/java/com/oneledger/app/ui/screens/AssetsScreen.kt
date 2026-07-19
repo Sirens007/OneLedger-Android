@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.oneledger.app.data.local.AccountEntity
+import com.oneledger.app.data.local.AccountBalanceItem
 import com.oneledger.app.domain.model.AccountType
 import com.oneledger.app.domain.model.TransactionType
 import com.oneledger.app.ui.OneLedgerUiState
@@ -56,10 +57,11 @@ fun AssetsScreen(
     modifier: Modifier = Modifier,
     nowMillis: Long = System.currentTimeMillis(),
 ) {
-    val balances = state.accounts.associateWith { account -> account.currentBalance(state) }
-    val totalAssets = balances.values.filter { it > 0 }.sum()
-    val totalLiabilities = balances.values.filter { it < 0 }.sumOf { kotlin.math.abs(it) }
-    val netWorth = totalAssets - totalLiabilities
+    val balances = state.accountBalances.associate { it.accountId to it.currentBalanceMinor }
+    val netWorthSummary = calculateNetWorth(state.accounts, state.accountBalances)
+    val totalAssets = netWorthSummary.assetsMinor
+    val totalLiabilities = netWorthSummary.liabilitiesMinor
+    val netWorth = netWorthSummary.netWorthMinor
     val currentMonth = remember(nowMillis) { MonthWindow.current(nowMillis) }
     val monthTransactions = state.transactions.filter { it.occurredAt.isIn(currentMonth) }
 
@@ -171,7 +173,7 @@ fun AssetsScreen(
                 } else {
                     Column {
                         state.accounts.forEachIndexed { index, account ->
-                            AccountRow(account, balances[account] ?: 0)
+                            AccountRow(account, balances[account.id] ?: account.openingBalanceMinor)
                             if (index != state.accounts.lastIndex) {
                                 HorizontalDivider(
                                     modifier = Modifier.padding(start = 74.dp),
@@ -187,17 +189,27 @@ fun AssetsScreen(
     }
 }
 
-private fun AccountEntity.currentBalance(state: OneLedgerUiState): Long {
-    var balance = openingBalanceMinor
-    state.transactions.forEach { transaction ->
-        when {
-            transaction.type == TransactionType.INCOME && transaction.accountId == id -> balance += transaction.amountMinor
-            transaction.type == TransactionType.EXPENSE && transaction.accountId == id -> balance -= transaction.amountMinor
-            transaction.type == TransactionType.TRANSFER && transaction.accountId == id -> balance -= transaction.amountMinor
-            transaction.type == TransactionType.TRANSFER && transaction.toAccountId == id -> balance += transaction.amountMinor
-        }
-    }
-    return balance
+internal data class NetWorthSummary(
+    val assetsMinor: Long,
+    val liabilitiesMinor: Long,
+) {
+    val netWorthMinor: Long = assetsMinor - liabilitiesMinor
+}
+
+internal fun calculateNetWorth(
+    accounts: List<AccountEntity>,
+    balanceItems: List<AccountBalanceItem>,
+): NetWorthSummary {
+    val balanceByAccountId = balanceItems.associate { it.accountId to it.currentBalanceMinor }
+    val includedBalances = accounts
+        .asSequence()
+        .filter { it.includeInNetWorth }
+        .map { balanceByAccountId[it.id] ?: it.openingBalanceMinor }
+        .toList()
+    return NetWorthSummary(
+        assetsMinor = includedBalances.filter { it > 0 }.sum(),
+        liabilitiesMinor = includedBalances.filter { it < 0 }.sumOf { kotlin.math.abs(it) },
+    )
 }
 
 @Composable

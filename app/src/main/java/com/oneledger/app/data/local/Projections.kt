@@ -15,3 +15,8 @@ data class TransactionListItem(
     val merchant: String,
     val occurredAt: Long,
 )
+
+data class AccountBalanceItem(
+    val accountId: String,
+    val currentBalanceMinor: Long,
+)

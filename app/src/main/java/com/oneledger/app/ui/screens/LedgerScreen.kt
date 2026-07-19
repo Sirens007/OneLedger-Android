@@ -69,6 +69,7 @@ import com.oneledger.app.util.calendarDateCells
 import com.oneledger.app.util.chineseCalendarLabel
 import com.oneledger.app.util.isIn
 import com.oneledger.app.util.monthLabel
+import com.oneledger.app.util.remainingDayCount
 import com.oneledger.app.util.timeLabel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -191,7 +192,14 @@ fun LedgerScreen(
             }
         }
 
-        item { BudgetHero(budget = monthBudget, spentMinor = monthExpense, onClick = onBudgetClick) }
+        item {
+            BudgetHero(
+                budget = monthBudget,
+                spentMinor = monthExpense,
+                remainingDays = monthWindow.remainingDayCount(nowMillis),
+                onClick = onBudgetClick,
+            )
+        }
 
         if (visibleTransactions.isEmpty()) {
             item {
@@ -242,11 +250,12 @@ private fun MonthButton(
 private fun BudgetHero(
     budget: BudgetEntity?,
     spentMinor: Long,
+    remainingDays: Long,
     onClick: () -> Unit,
 ) {
     val limit = budget?.limitMinor ?: 0
     val remaining = (limit - spentMinor).coerceAtLeast(0)
-    val dailyRemaining = remaining / 15
+    val dailyRemaining = if (remainingDays > 0) remaining / remainingDays else 0
     val progress = if (limit <= 0) 0f else (spentMinor.toFloat() / limit).coerceIn(0f, 1f)
 
     PressableSurface(

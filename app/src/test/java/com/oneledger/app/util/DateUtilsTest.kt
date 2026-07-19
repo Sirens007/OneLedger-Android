@@ -56,4 +56,41 @@ class DateUtilsTest {
         assertEquals(1, cells.first { it.inCurrentMonth }.dayNumber)
         assertEquals(31, cells.last { it.inCurrentMonth }.dayNumber)
     }
+
+    @Test
+    fun remainingDaysUseSelectedMonthAndIncludeToday() {
+        val now = Calendar.getInstance().apply {
+            set(2026, Calendar.JULY, 18, 12, 30, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        assertEquals(14, MonthWindow.current(now).remainingDayCount(now))
+        assertEquals(31, MonthWindow.offset(monthOffset = 1, now = now).remainingDayCount(now))
+        assertEquals(0, MonthWindow.offset(monthOffset = -1, now = now).remainingDayCount(now))
+    }
+
+    @Test
+    fun inclusiveDayCountUsesCalendarDaysInsteadOfFixedMilliseconds() {
+        val start = Calendar.getInstance().apply {
+            set(2026, Calendar.MARCH, 7, 23, 30, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val end = Calendar.getInstance().apply {
+            set(2026, Calendar.MARCH, 9, 0, 15, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        assertEquals(3, inclusiveLocalDayCount(start, end))
+        assertEquals(0, inclusiveLocalDayCount(end, start))
+    }
+
+    @Test
+    fun localYearComesFromSuppliedTimestamp() {
+        val timestamp = Calendar.getInstance().apply {
+            set(2031, Calendar.JANUARY, 2, 12, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        assertEquals(2031, timestamp.localYear())
+    }
 }
