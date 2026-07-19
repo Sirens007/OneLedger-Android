@@ -309,6 +309,7 @@ private fun CalendarDayCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val hasTransactions = expenseMinor > 0 || incomeMinor > 0
     val targetBackground = when {
         !cell.inCurrentMonth -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
         selected -> BrandBlue.copy(alpha = 0.68f)
@@ -346,22 +347,26 @@ private fun CalendarDayCell(
                     },
                 )
             }
-            Text(
-                text = if (cell.inCurrentMonth) "−${expenseMinor.calendarAmount()}" else "",
-                color = ExpenseCoral,
-                fontSize = 9.sp,
-                lineHeight = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-            Text(
-                text = if (cell.inCurrentMonth) "+${incomeMinor.calendarAmount()}" else "",
-                color = IncomeMint,
-                fontSize = 9.sp,
-                lineHeight = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
+            if (cell.inCurrentMonth && hasTransactions) {
+                Text(
+                    text = "−${expenseMinor.calendarAmount()}",
+                    color = ExpenseCoral,
+                    fontSize = 9.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                Text(
+                    text = "+${incomeMinor.calendarAmount()}",
+                    color = IncomeMint,
+                    fontSize = 9.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            } else {
+                Spacer(Modifier.height(20.dp))
+            }
         }
     }
 }
