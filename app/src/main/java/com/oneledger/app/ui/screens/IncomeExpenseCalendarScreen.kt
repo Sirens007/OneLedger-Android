@@ -1,5 +1,7 @@
 package com.oneledger.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -52,7 +54,6 @@ import com.oneledger.app.ui.components.OneLedgerCard
 import com.oneledger.app.ui.components.PressableSurface
 import com.oneledger.app.ui.components.colorFromLong
 import com.oneledger.app.ui.theme.BrandBlue
-import com.oneledger.app.ui.theme.BrandBlueLight
 import com.oneledger.app.ui.theme.ExpenseCoral
 import com.oneledger.app.ui.theme.IncomeMint
 import com.oneledger.app.ui.theme.SavingsAmber
@@ -76,12 +77,18 @@ fun IncomeExpenseCalendarScreen(
     onQuickAdd: () -> Unit,
     modifier: Modifier = Modifier,
     nowMillis: Long = System.currentTimeMillis(),
+    initialSelectedDayStart: Long? = null,
 ) {
     var monthOffset by rememberSaveable { mutableIntStateOf(0) }
     val monthWindow = remember(monthOffset, nowMillis) { MonthWindow.offset(monthOffset, nowMillis) }
-    var selectedDayStart by rememberSaveable(monthWindow.start) {
+    var selectedDayStart by rememberSaveable(monthWindow.start, initialSelectedDayStart) {
+        val requestedDay = initialSelectedDayStart?.startOfLocalDay()
         mutableLongStateOf(
-            if (nowMillis.isIn(monthWindow)) nowMillis.startOfLocalDay() else monthWindow.start,
+            when {
+                requestedDay != null && requestedDay.isIn(monthWindow) -> requestedDay
+                nowMillis.isIn(monthWindow) -> nowMillis.startOfLocalDay()
+                else -> monthWindow.start
+            },
         )
     }
     val cells = remember(monthWindow) { monthWindow.calendarDateCells() }
@@ -129,7 +136,6 @@ fun IncomeExpenseCalendarScreen(
                         cells = cells,
                         transactionsByDay = transactionsByDay,
                         selectedDayStart = selectedDayStart,
-                        todayStart = nowMillis.startOfLocalDay(),
                         onDaySelected = { selectedDayStart = it },
                     )
                 }
@@ -243,7 +249,6 @@ private fun CalendarGrid(
     cells: List<CalendarDateCell>,
     transactionsByDay: Map<String, List<TransactionListItem>>,
     selectedDayStart: Long,
-    todayStart: Long,
     onDaySelected: (Long) -> Unit,
 ) {
     Column(Modifier.padding(horizontal = 10.dp, vertical = 14.dp)) {
@@ -277,7 +282,6 @@ private fun CalendarGrid(
                         expenseMinor = expense,
                         incomeMinor = income,
                         selected = selectedDayStart == cell.startMillis,
-                        today = todayStart == cell.startMillis,
                         onClick = { if (cell.inCurrentMonth) onDaySelected(cell.startMillis) },
                         modifier = Modifier.weight(1f),
                     )
@@ -302,42 +306,41 @@ private fun CalendarDayCell(
     expenseMinor: Long,
     incomeMinor: Long,
     selected: Boolean,
-    today: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val background = when {
+    val targetBackground = when {
         !cell.inCurrentMonth -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
-        today -> BrandBlue.copy(alpha = 0.48f)
+        selected -> BrandBlue.copy(alpha = 0.68f)
         expenseMinor > incomeMinor -> ExpenseCoral.copy(alpha = 0.14f)
         incomeMinor > expenseMinor -> IncomeMint.copy(alpha = 0.16f)
         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)
     }
+    val background by animateColorAsState(
+        targetValue = targetBackground,
+        animationSpec = tween(140),
+        label = "calendar-selection",
+    )
     PressableSurface(
         onClick = onClick,
         enabled = cell.inCurrentMonth,
-        modifier = modifier
-            .height(66.dp)
-            .then(
-                when {
-                    today -> Modifier.border(1.5.dp, BrandBlueLight, RoundedCornerShape(12.dp))
-                    selected -> Modifier.border(1.5.dp, BrandBlue, RoundedCornerShape(12.dp))
-                    else -> Modifier
-                },
-            ),
+        modifier = modifier.height(66.dp),
         color = background,
         shape = RoundedCornerShape(12.dp),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 3.dp, vertical = 5.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 3.dp, vertical = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             Box(modifier = Modifier.height(20.dp), contentAlignment = Alignment.Center) {
                 Text(
                     cell.dayNumber.toString(),
                     style = MaterialTheme.typography.labelLarge,
                     color = when {
-                        today -> Color.White
+                        selected -> Color.White
                         cell.inCurrentMonth -> MaterialTheme.colorScheme.onSurface
                         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)
                     },

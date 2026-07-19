@@ -1,7 +1,11 @@
 package com.oneledger.app.ui
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.oneledger.app.data.local.AccountEntity
@@ -14,8 +18,9 @@ import com.oneledger.app.domain.model.SavingsMethod
 import com.oneledger.app.domain.model.TransactionType
 import com.oneledger.app.ui.components.QuickAddPreviewSurface
 import com.oneledger.app.ui.components.TransactionDateTimePreviewSurface
-import com.oneledger.app.ui.theme.OneLedgerTheme
 import com.oneledger.app.ui.screens.BudgetEditorPreviewSurface
+import com.oneledger.app.ui.screens.IncomeExpenseCalendarScreen
+import com.oneledger.app.ui.theme.OneLedgerTheme
 import com.oneledger.app.util.MonthWindow
 import java.util.Calendar
 
@@ -60,6 +65,23 @@ fun BudgetEditorScreenshot() {
 @Preview(name = "收支日历 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
 @Composable
 fun IncomeExpenseCalendarScreenshot() = PreviewLedgerPage(LedgerPage.CALENDAR)
+
+@PreviewTest
+@Preview(name = "收支日历 · 改选日期", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
+@Composable
+fun IncomeExpenseCalendarSelectedDayScreenshot() {
+    OneLedgerTheme(darkTheme = true) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            IncomeExpenseCalendarScreen(
+                state = previewState(),
+                onBack = {},
+                onQuickAdd = {},
+                nowMillis = PREVIEW_NOW,
+                initialSelectedDayStart = daysAgo(PREVIEW_NOW, 6),
+            )
+        }
+    }
+}
 
 @PreviewTest
 @Preview(name = "快速记账 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
