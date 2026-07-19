@@ -11,6 +11,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -156,6 +158,8 @@ private fun QuickAddContent(
 ) {
     val editKey = initialTransaction?.id
     val isEditing = initialTransaction != null
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var type by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.type ?: TransactionType.EXPENSE) }
     var amount by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.amountMinor?.amountInputValue().orEmpty()) }
     var accumulator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
@@ -289,6 +293,11 @@ private fun QuickAddContent(
             occurredAt = occurredAt,
             onNoteChange = { if (it.length <= 60) note = it },
             onNoteFocusChanged = { noteFocused = it },
+            onAmountClick = {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                noteFocused = false
+            },
             onDateClick = { showDateTimePicker = true },
         )
         if (!errorMessage.isNullOrBlank()) {
@@ -591,6 +600,7 @@ private fun AmountPanel(
     occurredAt: Long,
     onNoteChange: (String) -> Unit,
     onNoteFocusChanged: (Boolean) -> Unit,
+    onAmountClick: () -> Unit,
     onDateClick: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
@@ -602,7 +612,12 @@ private fun AmountPanel(
         shape = RoundedCornerShape(22.dp),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 11.dp)) {
-            Row(verticalAlignment = Alignment.Bottom) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onAmountClick),
+                verticalAlignment = Alignment.Bottom,
+            ) {
                 Text("¥", style = MaterialTheme.typography.headlineMedium, color = accent)
                 Text(
                     text = amount.ifBlank { "0.00" },
@@ -612,7 +627,11 @@ private fun AmountPanel(
                     maxLines = 1,
                 )
                 pendingOperator?.let {
-                    Text("  $it", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "  $it",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
                 }
             }
             Spacer(Modifier.height(7.dp))
