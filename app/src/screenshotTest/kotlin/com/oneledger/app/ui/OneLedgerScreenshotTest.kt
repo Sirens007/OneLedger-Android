@@ -12,6 +12,8 @@ import com.oneledger.app.data.local.TransactionListItem
 import com.oneledger.app.domain.model.AccountType
 import com.oneledger.app.domain.model.SavingsMethod
 import com.oneledger.app.domain.model.TransactionType
+import com.oneledger.app.ui.components.QuickAddPreviewSurface
+import com.oneledger.app.ui.components.TransactionDateTimePreviewSurface
 import com.oneledger.app.ui.theme.OneLedgerTheme
 import com.oneledger.app.ui.screens.BudgetEditorPreviewSurface
 import com.oneledger.app.util.MonthWindow
@@ -58,6 +60,30 @@ fun BudgetEditorScreenshot() {
 @Preview(name = "收支日历 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
 @Composable
 fun IncomeExpenseCalendarScreenshot() = PreviewLedgerPage(LedgerPage.CALENDAR)
+
+@PreviewTest
+@Preview(name = "快速记账 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
+@Composable
+fun QuickAddScreenshot() {
+    val state = previewState()
+    OneLedgerTheme(darkTheme = true) {
+        QuickAddPreviewSurface(
+            accounts = state.accounts,
+            expenseCategories = state.expenseCategories,
+            incomeCategories = state.incomeCategories,
+            nowMillis = PREVIEW_NOW,
+        )
+    }
+}
+
+@PreviewTest
+@Preview(name = "记账时间 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
+@Composable
+fun TransactionDateTimeScreenshot() {
+    OneLedgerTheme(darkTheme = true) {
+        TransactionDateTimePreviewSurface(nowMillis = PREVIEW_NOW)
+    }
+}
 
 @Composable
 private fun PreviewFrame(destination: Destination) {
@@ -135,8 +161,14 @@ private fun previewState(): OneLedgerUiState {
 
     val categories = listOf(
         category("food", "餐饮", "food", 0xFFFF6B5F, now, bookId),
-        category("transport", "交通", "transport", 0xFF4D7CFE, now, bookId),
         category("shopping", "购物", "shopping", 0xFFFFA94D, now, bookId),
+        category("clothes", "服饰", "shopping", 0xFF9B7BFF, now, bookId),
+        category("daily", "日用", "home", 0xFF57D3A2, now, bookId),
+        category("digital", "数码", "shopping", 0xFF29B6F6, now, bookId),
+        category("transport", "交通", "transport", 0xFF4D7CFE, now, bookId),
+        category("fun", "娱乐", "movie", 0xFFFFC247, now, bookId),
+        category("health", "医疗", "health", 0xFFFF6B8A, now, bookId),
+        category("study", "学习", "study", 0xFF6C8CFF, now, bookId),
         category("home", "居家", "home", 0xFF57D3A2, now, bookId),
     )
 

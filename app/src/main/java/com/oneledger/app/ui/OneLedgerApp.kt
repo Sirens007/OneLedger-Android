@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -73,6 +74,7 @@ import com.oneledger.app.ui.screens.LedgerScreen
 import com.oneledger.app.ui.screens.SavingsScreen
 import com.oneledger.app.ui.screens.StatisticsScreen
 import com.oneledger.app.ui.theme.BrandBlue
+import com.oneledger.app.ui.theme.BrandBlueLight
 import com.oneledger.app.ui.theme.BrandTeal
 import com.oneledger.app.util.MonthWindow
 import kotlinx.coroutines.launch
@@ -138,13 +140,13 @@ fun OneLedgerApp(viewModel: OneLedgerViewModel) {
             expenseCategories = state.expenseCategories,
             incomeCategories = state.incomeCategories,
             onDismiss = { showQuickAdd = false },
-            onSave = { transaction ->
+            onSave = { transaction, keepOpen ->
                 viewModel.addTransaction(transaction) { transactionId ->
                     haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                    showQuickAdd = false
+                    if (!keepOpen) showQuickAdd = false
                     scope.launch {
                         val result = snackbarHostState.showSnackbar(
-                            message = "已记入日常账本",
+                            message = if (keepOpen) "已保存，可以继续记账" else "已记入日常账本",
                             actionLabel = "撤销",
                             duration = SnackbarDuration.Short,
                         )
@@ -212,7 +214,7 @@ internal fun OneLedgerFrame(
             }
 
             if (destination == Destination.LEDGER && ledgerPage == LedgerPage.OVERVIEW) {
-                QuickAddButton(
+                LiquidGlassAddButton(
                     onClick = onQuickAdd,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -236,11 +238,11 @@ internal fun OneLedgerFrame(
 }
 
 @Composable
-private fun QuickAddButton(
+private fun LiquidGlassAddButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(19.dp)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -252,30 +254,53 @@ private fun QuickAddButton(
         onClick = onClick,
         interactionSource = interaction,
         modifier = modifier
-            .width(112.dp)
-            .height(50.dp)
-            .scale(scale)
-            .background(
-                brush = Brush.horizontalGradient(listOf(BrandBlue, BrandTeal)),
-                shape = shape,
-            ),
+            .size(58.dp)
+            .scale(scale),
         shape = shape,
         color = Color.Transparent,
-        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.32f)),
+        shadowElevation = 14.dp,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = Brush.linearGradient(
+                        listOf(
+                            BrandBlueLight.copy(alpha = 0.88f),
+                            BrandBlue.copy(alpha = 0.94f),
+                            BrandTeal.copy(alpha = 0.68f),
+                        ),
+                    ),
+                    shape = shape,
+                ),
+            contentAlignment = Alignment.Center,
         ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.White.copy(alpha = 0.28f), Color.Transparent),
+                        ),
+                        RoundedCornerShape(topStart = 19.dp, topEnd = 19.dp),
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, bottom = 7.dp)
+                    .size(10.dp)
+                    .background(Color.White.copy(alpha = 0.16f), CircleShape),
+            )
             Icon(
                 Icons.Default.Add,
                 contentDescription = "快速记账",
                 tint = Color.White,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(30.dp),
             )
-            Spacer(Modifier.width(6.dp))
-            Text("记一笔", color = Color.White, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

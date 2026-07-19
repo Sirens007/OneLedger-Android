@@ -20,12 +20,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,12 +48,11 @@ import com.oneledger.app.data.local.TransactionListItem
 import com.oneledger.app.domain.model.TransactionType
 import com.oneledger.app.ui.OneLedgerUiState
 import com.oneledger.app.ui.components.CategoryGlyph
-import com.oneledger.app.ui.components.DetailHeader
 import com.oneledger.app.ui.components.OneLedgerCard
 import com.oneledger.app.ui.components.PressableSurface
 import com.oneledger.app.ui.components.colorFromLong
 import com.oneledger.app.ui.theme.BrandBlue
-import com.oneledger.app.ui.theme.BrandTeal
+import com.oneledger.app.ui.theme.BrandBlueLight
 import com.oneledger.app.ui.theme.ExpenseCoral
 import com.oneledger.app.ui.theme.IncomeMint
 import com.oneledger.app.ui.theme.SavingsAmber
@@ -85,9 +86,6 @@ fun IncomeExpenseCalendarScreen(
     }
     val cells = remember(monthWindow) { monthWindow.calendarDateCells() }
     val transactionsByDay = state.transactions.groupBy { it.occurredAt.dayKey() }
-    val monthTransactions = state.transactions.filter { it.occurredAt.isIn(monthWindow) }
-    val monthExpense = monthTransactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
-    val monthIncome = monthTransactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountMinor }
     val selectedTransactions = state.transactions.filter {
         it.occurredAt >= selectedDayStart && it.occurredAt < selectedDayStart.nextLocalDayStart()
     }
@@ -97,23 +95,10 @@ fun IncomeExpenseCalendarScreen(
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars),
     ) {
-        DetailHeader(
-            title = "收支日历",
+        CalendarTopBar(
             onBack = onBack,
-            eyebrow = "DAILY FLOW",
+            onQuickAdd = onQuickAdd,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp),
-            action = {
-                PressableSurface(
-                    onClick = onQuickAdd,
-                    modifier = Modifier.size(40.dp),
-                    color = BrandBlue,
-                    shape = RoundedCornerShape(13.dp),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Add, contentDescription = "记一笔", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-                }
-            },
         )
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -129,10 +114,17 @@ fun IncomeExpenseCalendarScreen(
                 )
             }
             item {
-                MonthFlowStrip(expenseMinor = monthExpense, incomeMinor = monthIncome)
-            }
-            item {
-                OneLedgerCard(Modifier.fillMaxWidth()) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                            RoundedCornerShape(26.dp),
+                        ),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(26.dp),
+                ) {
                     CalendarGrid(
                         cells = cells,
                         transactionsByDay = transactionsByDay,
@@ -153,16 +145,70 @@ fun IncomeExpenseCalendarScreen(
 }
 
 @Composable
+private fun CalendarTopBar(
+    onBack: () -> Unit,
+    onQuickAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PressableSurface(
+            onClick = onBack,
+            modifier = Modifier.size(44.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(15.dp),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", modifier = Modifier.size(23.dp))
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(15.dp),
+        ) {
+            Text(
+                "账本 ▾",
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        PressableSurface(
+            onClick = onQuickAdd,
+            modifier = Modifier.size(44.dp),
+            color = BrandBlue,
+            shape = RoundedCornerShape(15.dp),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Add, contentDescription = "记一笔", tint = Color.White, modifier = Modifier.size(25.dp))
+            }
+        }
+    }
+}
+
+@Composable
 private fun CalendarMonthHeader(
     label: String,
     canMoveForward: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         CalendarArrow(Icons.Default.ChevronLeft, "上个月", true, onPrevious)
-        Spacer(Modifier.size(7.dp))
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center,
+        )
         CalendarArrow(Icons.Default.ChevronRight, "下个月", canMoveForward, onNext)
     }
 }
@@ -178,53 +224,17 @@ private fun CalendarArrow(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.size(36.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(11.dp),
+        color = BrandBlue.copy(alpha = if (enabled) 1f else 0.14f),
+        shape = CircleShape,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(
                 icon,
                 contentDescription = description,
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.28f),
+                tint = Color.White.copy(alpha = if (enabled) 1f else 0.32f),
             )
         }
-    }
-}
-
-@Composable
-private fun MonthFlowStrip(expenseMinor: Long, incomeMinor: Long) {
-    OneLedgerCard(Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            FlowMetric("流出", expenseMinor, ExpenseCoral, Modifier.weight(1f))
-            FlowMetric("流入", incomeMinor, IncomeMint, Modifier.weight(1f))
-            FlowMetric("净流", incomeMinor - expenseMinor, BrandTeal, Modifier.weight(1f), signed = true)
-        }
-    }
-}
-
-@Composable
-private fun FlowMetric(
-    label: String,
-    amount: Long,
-    accent: Color,
-    modifier: Modifier = Modifier,
-    signed: Boolean = false,
-) {
-    Column(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(6.dp).background(accent, CircleShape))
-            Text(label, modifier = Modifier.padding(start = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Text(
-            MoneyFormatter.format(amount, showSign = signed),
-            style = MaterialTheme.typography.titleMedium,
-            color = if (signed && amount < 0) ExpenseCoral else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-        )
     }
 }
 
@@ -236,7 +246,7 @@ private fun CalendarGrid(
     todayStart: Long,
     onDaySelected: (Long) -> Unit,
 ) {
-    Column(Modifier.padding(horizontal = 9.dp, vertical = 12.dp)) {
+    Column(Modifier.padding(horizontal = 10.dp, vertical = 14.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -274,14 +284,14 @@ private fun CalendarGrid(
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(11.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("双轨：", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("底色表示当日净收支：", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box(Modifier.size(6.dp).background(ExpenseCoral, CircleShape))
-            Text(" 支出", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(" 支出较多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.size(12.dp))
             Box(Modifier.size(6.dp).background(IncomeMint, CircleShape))
-            Text(" 收入", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(" 收入较多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -296,34 +306,33 @@ private fun CalendarDayCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hasFlow = expenseMinor > 0 || incomeMinor > 0
     val background = when {
-        selected -> BrandBlue.copy(alpha = 0.22f)
-        hasFlow -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-        else -> Color.Transparent
+        !cell.inCurrentMonth -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f)
+        today -> BrandBlue.copy(alpha = 0.48f)
+        expenseMinor > incomeMinor -> ExpenseCoral.copy(alpha = 0.14f)
+        incomeMinor > expenseMinor -> IncomeMint.copy(alpha = 0.16f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)
     }
     PressableSurface(
         onClick = onClick,
         enabled = cell.inCurrentMonth,
         modifier = modifier
-            .height(62.dp)
+            .height(66.dp)
             .then(
-                if (selected) Modifier.border(1.5.dp, BrandTeal, RoundedCornerShape(11.dp))
-                else Modifier,
+                when {
+                    today -> Modifier.border(1.5.dp, BrandBlueLight, RoundedCornerShape(12.dp))
+                    selected -> Modifier.border(1.5.dp, BrandBlue, RoundedCornerShape(12.dp))
+                    else -> Modifier
+                },
             ),
         color = background,
-        shape = RoundedCornerShape(11.dp),
+        shape = RoundedCornerShape(12.dp),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 3.dp, vertical = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                modifier = if (today) Modifier
-                    .size(20.dp)
-                    .background(BrandTeal, CircleShape) else Modifier.height(20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(modifier = Modifier.height(20.dp), contentAlignment = Alignment.Center) {
                 Text(
                     cell.dayNumber.toString(),
                     style = MaterialTheme.typography.labelLarge,
@@ -335,16 +344,18 @@ private fun CalendarDayCell(
                 )
             }
             Text(
-                text = if (expenseMinor > 0) "−${expenseMinor.calendarAmount()}" else "—",
-                color = if (expenseMinor > 0) ExpenseCoral else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                text = if (cell.inCurrentMonth) "−${expenseMinor.calendarAmount()}" else "",
+                color = ExpenseCoral,
                 fontSize = 9.sp,
+                lineHeight = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
             Text(
-                text = if (incomeMinor > 0) "+${incomeMinor.calendarAmount()}" else "—",
-                color = if (incomeMinor > 0) IncomeMint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                text = if (cell.inCurrentMonth) "+${incomeMinor.calendarAmount()}" else "",
+                color = IncomeMint,
                 fontSize = 9.sp,
+                lineHeight = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
