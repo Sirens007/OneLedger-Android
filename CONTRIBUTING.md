@@ -7,7 +7,9 @@
 本地验证：
 
 ```powershell
-.\gradlew.bat assembleDebug testDebugUnitTest lintDebug validateDebugScreenshotTest
+.\gradlew.bat assembleDebug testDebugUnitTest lintDebug validateDebugScreenshotTest compileDebugAndroidTestKotlin
 ```
+
+涉及 Room schema、Migration 或 DAO 行为时，另在允许 USB 安装测试 APK 的设备上运行 `.\gradlew.bat connectedDebugAndroidTest`。
 
 安全问题请不要提交包含真实账单、密钥或签名文件的公开 Issue/PR。

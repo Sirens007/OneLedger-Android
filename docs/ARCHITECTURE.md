@@ -26,8 +26,10 @@ Room DAO → SQLite
 ```
 
 - UI 只消费不可变 `UiState`，不直接访问 DAO。
-- DAO 暴露 `Flow`，数据库更新后四个页面自动重算。
+- Repository 维护当前 `activeBookId`；账户、分类、账单、预算、存钱计划与余额 Flow 随当前账本切换，DAO 查询和账单变更必须显式携带 `bookId`。
+- DAO 暴露 `Flow`，当前账本的数据更新后四个页面自动重算。
 - 账单新增、更新、软删除与恢复统一经 Repository；更新保留稳定 ID/创建时间，删除只写入 `deletedAt`，撤销清除该字段。
+- 账户余额由 DAO 一次聚合收入、支出和转账；UI 不再为每个账户遍历全部账单。
 - 金额统一用最小货币单位 `Long` 保存，例如 `¥12.34 = 1234`，严禁 `Double`。
 - 时间首版保存 epoch milliseconds；展示层再按本地时区分组。
 - 系统自动云备份默认关闭；未来如增加加密备份，必须由用户主动开启并明确选择目的地。
@@ -40,10 +42,12 @@ Room DAO → SQLite
 | `accounts` | 现金、储蓄卡、信用账户 | `type`, `openingBalanceMinor`, `includeInNetWorth` |
 | `categories` | 收入/支出分类 | `transactionType`, `iconKey`, `colorHex`, `sortOrder` |
 | `transactions` | 收入、支出、转账 | `amountMinor`, `accountId`, `toAccountId`, `categoryId`, `occurredAt` |
-| `budgets` | 总预算或分类预算 | `periodStart`, `periodEnd`, `limitMinor`, `categoryId` |
+| `budgets` | 总预算或分类预算 | `periodStart`, `periodEnd`, `limitMinor`, `categoryId`, `scopeKey` |
 | `savings_plans` | 存钱目标 | `method`, `targetMinor`, `savedMinor`, `startAt`, `endAt` |
 
 `transactions` 同时预留 `relatedTransactionId`、`reimbursementState`、`deletedAt`，以后可以扩展退款/报销/同步，而不用破坏基础账单模型。
+
+当前 Room schema 为 v2。v1→v2 通过显式 `MIGRATION_1_2` 增加账单/预算关系约束和预算周期唯一索引；父记录使用 `@Upsert`，禁止用 `REPLACE` 更新带外键的数据。完整规则见 [数据完整性基线](DATA_INTEGRITY.md)。数据层已具备当前账本隔离能力，但多账本创建、选择和管理 UI 仍属于后续功能。
 
 ## 4. 工程边界
 
@@ -77,7 +81,7 @@ com.oneledger.app
 
 ### v0.2 完整个人财务
 
-- 转账成对记账、退款/报销、周期账单、搜索筛选、数据库迁移测试、应用锁。
+- 多账本管理、账户/分类完整 CRUD、转账成对记账、退款/报销、周期账单、搜索筛选、应用锁。
 
 ### v1.0 可发布版
 

@@ -29,7 +29,10 @@
 
 - [ ] 金额使用 `Long` 最小货币单位，不使用 `Double`。
 - [ ] UI 经 ViewModel/Repository 访问数据，不直接调用 DAO。
+- [ ] 账户、分类、账单、预算和计划查询显式受当前 `bookId` 约束，无跨账本聚合或变更。
+- [ ] 带外键的父记录使用 `@Upsert`/`@Update`，不使用可能先删除旧行的 `REPLACE`。
 - [ ] 数据库变更包含 Migration 和迁移测试。
+- [ ] Room schema JSON 已提交，Android 测试已编译；数据库变更已在允许安装测试 APK 的设备上运行迁移测试。
 - [ ] 时间区间、跨日/月/年、空集合和极值已覆盖。
 - [ ] 无密钥、真实财务数据、构建产物或无说明 TODO。
 
@@ -37,6 +40,7 @@
 
 - [ ] `assembleDebug` 通过。
 - [ ] `testDebugUnitTest` 通过。
+- [ ] `compileDebugAndroidTestKotlin` 通过；涉及数据库/DAO 时 `connectedDebugAndroidTest` 通过。
 - [ ] `lintDebug` 通过。
 - [ ] 相关截图回归通过，基准变化已人工确认。
 - [ ] PR 描述、规范/README、发布说明已同步。

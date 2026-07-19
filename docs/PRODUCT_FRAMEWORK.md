@@ -63,6 +63,7 @@ Compose UI → immutable UiState → ViewModel → Repository → Room DAO → S
 
 - 金额一律用最小货币单位 `Long`；展示时格式化。
 - UI 不访问 DAO，不保存派生余额；余额和统计由交易聚合得出。
+- 所有本地数据读取和写入以 Repository 的当前账本为边界；多账本 UI 上线前也不得回退到跨账本查询。
 - 转账是同一业务事件，必须成对或以可证明一致的模型写入。
 - 时间保存为时间戳，按设备时区展示；跨日边界必须测试。
 - 数据库升级只能提供显式 Migration，禁止生产路径使用 destructive migration。
@@ -75,7 +76,7 @@ Compose UI → immutable UiState → ViewModel → Repository → Room DAO → S
 | 阶段 | 目标 | 出口条件 |
 | --- | --- | --- |
 | v0.1 | 可长期使用的本地账本 | CRUD、预算、资产、统计、导出稳定 |
-| v0.2 | 完整个人财务 | 转账、退款、周期账单、搜索、迁移测试 |
+| v0.2 | 完整个人财务 | 多账本管理、账户/分类 CRUD、转账、退款、周期账单、搜索 |
 | v1.0 | 可公开发布 | 加密备份、无障碍、大屏、性能、隐私说明 |
 | v2.0 | 可控智能输入 | OCR/自然语言先预览再入账，可完全关闭 |
 

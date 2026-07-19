@@ -14,6 +14,8 @@
 - [ ] testDebugUnitTest
 - [ ] lintDebug
 - [ ] validateDebugScreenshotTest（如适用）
+- [ ] compileDebugAndroidTestKotlin
+- [ ] connectedDebugAndroidTest（数据库/DAO 变更时必选）
 - [ ] 手工验证主流程、取消流程和失败流程
 
 ## UI 变化（如适用）
