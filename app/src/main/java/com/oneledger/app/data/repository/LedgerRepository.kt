@@ -18,6 +18,9 @@ interface LedgerRepository {
 
     suspend fun ensureSeedData()
     suspend fun addTransaction(transaction: NewTransaction): String
+    suspend fun updateTransaction(id: String, transaction: NewTransaction)
+    suspend fun deleteTransaction(id: String)
+    suspend fun restoreTransaction(id: String)
     suspend fun undoTransaction(id: String)
     suspend fun saveBudget(
         periodStart: Long,

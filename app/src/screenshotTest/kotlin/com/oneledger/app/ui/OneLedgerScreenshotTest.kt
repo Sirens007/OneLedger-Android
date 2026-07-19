@@ -116,6 +116,32 @@ fun QuickAddScreenshot() {
 }
 
 @PreviewTest
+@Preview(name = "编辑账单 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
+@Composable
+fun TransactionEditDarkScreenshot() = TransactionEditPreview(darkTheme = true)
+
+@PreviewTest
+@Preview(name = "编辑账单 · 浅色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_NO, showSystemUi = true)
+@Composable
+fun TransactionEditLightScreenshot() = TransactionEditPreview(darkTheme = false)
+
+@Composable
+private fun TransactionEditPreview(darkTheme: Boolean) {
+    val state = previewState()
+    OneLedgerTheme(darkTheme = darkTheme) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            QuickAddPreviewSurface(
+                accounts = state.accounts,
+                expenseCategories = state.expenseCategories,
+                incomeCategories = state.incomeCategories,
+                nowMillis = PREVIEW_NOW,
+                initialTransaction = state.transactions.first(),
+            )
+        }
+    }
+}
+
+@PreviewTest
 @Preview(name = "记账时间 · 深色", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
 @Composable
 fun TransactionDateTimeScreenshot() {

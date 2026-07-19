@@ -101,6 +101,9 @@ fun OneLedgerApp(viewModel: OneLedgerViewModel) {
     var destination by rememberSaveable { mutableStateOf(Destination.LEDGER) }
     var ledgerPage by rememberSaveable { mutableStateOf(LedgerPage.OVERVIEW) }
     var showQuickAdd by rememberSaveable { mutableStateOf(false) }
+    var editingTransactionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingError by rememberSaveable { mutableStateOf<String?>(null) }
+    val editingTransaction = state.transactions.firstOrNull { it.id == editingTransactionId }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -114,7 +117,16 @@ fun OneLedgerApp(viewModel: OneLedgerViewModel) {
             ledgerPage = LedgerPage.OVERVIEW
         },
         onLedgerPageChanged = { ledgerPage = it },
-        onQuickAdd = { showQuickAdd = true },
+        onQuickAdd = {
+            editingTransactionId = null
+            editingError = null
+            showQuickAdd = true
+        },
+        onTransactionClick = { transactionId ->
+            showQuickAdd = false
+            editingError = null
+            editingTransactionId = transactionId
+        },
         onBudgetSaved = { window, categoryId, limitMinor ->
             viewModel.saveBudget(
                 periodStart = window.start,
@@ -156,6 +168,66 @@ fun OneLedgerApp(viewModel: OneLedgerViewModel) {
             },
         )
     }
+
+    if (editingTransaction != null) {
+        QuickAddSheet(
+            accounts = state.accounts,
+            expenseCategories = state.expenseCategories,
+            incomeCategories = state.incomeCategories,
+            initialTransaction = editingTransaction,
+            errorMessage = editingError,
+            onDismiss = {
+                editingError = null
+                editingTransactionId = null
+            },
+            onSave = { transaction, _ ->
+                editingError = null
+                viewModel.updateTransaction(editingTransaction.id, transaction) { result ->
+                    if (result.isSuccess) {
+                        editingTransactionId = null
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                message = "账单已更新",
+                                duration = SnackbarDuration.Short,
+                            )
+                        }
+                    } else {
+                        editingError = "账单未保存，请重试。已填写内容不会丢失。"
+                    }
+                }
+            },
+            onDelete = {
+                val transactionId = editingTransaction.id
+                editingError = null
+                viewModel.deleteTransaction(transactionId) { result ->
+                    if (result.isSuccess) {
+                        editingTransactionId = null
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        scope.launch {
+                            val snackbarResult = snackbarHostState.showSnackbar(
+                                message = "账单已删除",
+                                actionLabel = "撤销",
+                                duration = SnackbarDuration.Long,
+                            )
+                            if (snackbarResult == SnackbarResult.ActionPerformed) {
+                                viewModel.restoreTransaction(transactionId) { restoreResult ->
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = if (restoreResult.isSuccess) "账单已恢复" else "账单未恢复，请重试",
+                                            duration = SnackbarDuration.Short,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        editingError = "账单未删除，请重试。原账单仍然安全。"
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -166,6 +238,7 @@ internal fun OneLedgerFrame(
     onQuickAdd: () -> Unit,
     ledgerPage: LedgerPage = LedgerPage.OVERVIEW,
     onLedgerPageChanged: (LedgerPage) -> Unit = {},
+    onTransactionClick: (String) -> Unit = {},
     onBudgetSaved: (MonthWindow, String?, Long) -> Unit = { _, _, _ -> },
     nowMillis: Long = System.currentTimeMillis(),
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
@@ -193,6 +266,7 @@ internal fun OneLedgerFrame(
                             nowMillis = nowMillis,
                             onBudgetClick = { onLedgerPageChanged(LedgerPage.BUDGET) },
                             onCalendarClick = { onLedgerPageChanged(LedgerPage.CALENDAR) },
+                            onTransactionClick = onTransactionClick,
                         )
                         LedgerPage.BUDGET -> BudgetDetailScreen(
                             state = state,
@@ -204,6 +278,7 @@ internal fun OneLedgerFrame(
                             state = state,
                             onBack = { onLedgerPageChanged(LedgerPage.OVERVIEW) },
                             onQuickAdd = onQuickAdd,
+                            onTransactionClick = onTransactionClick,
                             nowMillis = nowMillis,
                         )
                     }

@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +87,7 @@ fun IncomeExpenseCalendarScreen(
     nowMillis: Long = System.currentTimeMillis(),
     initialSelectedDayStart: Long? = null,
     initialMonthOffset: Int = 0,
+    onTransactionClick: (String) -> Unit = {},
 ) {
     val initialPage = remember(initialMonthOffset) {
         (CalendarInitialPage + initialMonthOffset).coerceIn(0, CalendarPageCount - 1)
@@ -185,6 +187,7 @@ fun IncomeExpenseCalendarScreen(
                     SelectedDayTransactions(
                         dayStart = pageSelectedDayStart,
                         transactions = pageSelectedTransactions,
+                        onTransactionClick = onTransactionClick,
                     )
                 }
             }
@@ -431,6 +434,7 @@ private fun CalendarDayCell(
 private fun SelectedDayTransactions(
     dayStart: Long,
     transactions: List<TransactionListItem>,
+    onTransactionClick: (String) -> Unit,
 ) {
     val expense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
     val income = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountMinor }
@@ -453,7 +457,10 @@ private fun SelectedDayTransactions(
             } else {
                 Column {
                     transactions.forEachIndexed { index, transaction ->
-                        CalendarTransactionRow(transaction)
+                        CalendarTransactionRow(
+                            transaction = transaction,
+                            onClick = { onTransactionClick(transaction.id) },
+                        )
                         if (index != transactions.lastIndex) {
                             HorizontalDivider(
                                 modifier = Modifier.padding(start = 70.dp),
@@ -468,40 +475,52 @@ private fun SelectedDayTransactions(
 }
 
 @Composable
-private fun CalendarTransactionRow(transaction: TransactionListItem) {
+private fun CalendarTransactionRow(
+    transaction: TransactionListItem,
+    onClick: () -> Unit,
+) {
     val color = when (transaction.type) {
         TransactionType.EXPENSE -> ExpenseCoral
         TransactionType.INCOME -> IncomeMint
         else -> SavingsAmber
     }
     val sign = if (transaction.type == TransactionType.EXPENSE) -1 else 1
-    Row(
-        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    PressableSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {},
+        color = Color.Transparent,
+        shape = RoundedCornerShape(12.dp),
     ) {
-        CategoryGlyph(
-            iconKey = transaction.iconKey,
-            color = colorFromLong(transaction.colorHex),
-            modifier = Modifier.size(38.dp),
-            contentDescription = transaction.categoryName,
-        )
-        Column(
-            modifier = Modifier
-                .padding(start = 11.dp)
-                .weight(1f),
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(transaction.categoryName, style = MaterialTheme.typography.titleMedium)
-            Text(
-                listOf(transaction.timeLabelSafe(), transaction.note).filter { it.isNotBlank() }.joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            CategoryGlyph(
+                iconKey = transaction.iconKey,
+                color = colorFromLong(transaction.colorHex),
+                modifier = Modifier.size(38.dp),
+                contentDescription = null,
             )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(MoneyFormatter.format(transaction.amountMinor * sign), color = color, style = MaterialTheme.typography.titleMedium)
-            Text(transaction.accountName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(
+                modifier = Modifier
+                    .padding(start = 11.dp)
+                    .weight(1f),
+            ) {
+                Text(transaction.categoryName, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    listOf(transaction.timeLabelSafe(), transaction.note).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(MoneyFormatter.format(transaction.amountMinor * sign), color = color, style = MaterialTheme.typography.titleMedium)
+                Text(transaction.accountName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

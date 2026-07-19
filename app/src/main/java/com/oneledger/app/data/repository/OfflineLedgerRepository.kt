@@ -106,6 +106,7 @@ class OfflineLedgerRepository(
     }
 
     override suspend fun addTransaction(transaction: NewTransaction): String {
+        transaction.requireValid()
         val now = System.currentTimeMillis()
         val id = UUID.randomUUID().toString()
         dao.insertTransaction(
@@ -126,8 +127,23 @@ class OfflineLedgerRepository(
         return id
     }
 
-    override suspend fun undoTransaction(id: String) {
+    override suspend fun updateTransaction(id: String, transaction: NewTransaction) {
+        val existing = checkNotNull(dao.getTransaction(id)) { "找不到要更新的账单" }
+        dao.updateTransaction(existing.withUpdate(transaction, System.currentTimeMillis()))
+    }
+
+    override suspend fun deleteTransaction(id: String) {
+        checkNotNull(dao.getTransaction(id)) { "找不到要删除的账单" }
         dao.softDeleteTransaction(id, System.currentTimeMillis())
+    }
+
+    override suspend fun restoreTransaction(id: String) {
+        checkNotNull(dao.getTransaction(id)) { "找不到要恢复的账单" }
+        dao.restoreTransaction(id, System.currentTimeMillis())
+    }
+
+    override suspend fun undoTransaction(id: String) {
+        deleteTransaction(id)
     }
 
     override suspend fun saveBudget(

@@ -11,6 +11,7 @@ import com.oneledger.app.data.local.TransactionListItem
 import com.oneledger.app.data.repository.LedgerRepository
 import com.oneledger.app.domain.model.NewTransaction
 import com.oneledger.app.domain.model.TransactionType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -85,6 +86,22 @@ class OneLedgerViewModel(
         viewModelScope.launch { repository.undoTransaction(id) }
     }
 
+    fun updateTransaction(
+        id: String,
+        transaction: NewTransaction,
+        onComplete: (Result<Unit>) -> Unit,
+    ) = runMutation(onComplete) {
+        repository.updateTransaction(id, transaction)
+    }
+
+    fun deleteTransaction(id: String, onComplete: (Result<Unit>) -> Unit) = runMutation(onComplete) {
+        repository.deleteTransaction(id)
+    }
+
+    fun restoreTransaction(id: String, onComplete: (Result<Unit>) -> Unit = {}) = runMutation(onComplete) {
+        repository.restoreTransaction(id)
+    }
+
     fun saveBudget(
         periodStart: Long,
         periodEnd: Long,
@@ -100,6 +117,22 @@ class OneLedgerViewModel(
                 categoryId = categoryId,
             )
             onSaved()
+        }
+    }
+
+    private fun runMutation(
+        onComplete: (Result<Unit>) -> Unit,
+        mutation: suspend () -> Unit,
+    ) {
+        viewModelScope.launch {
+            try {
+                mutation()
+                onComplete(Result.success(Unit))
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                onComplete(Result.failure(error))
+            }
         }
     }
 }

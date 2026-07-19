@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,6 +75,7 @@ fun LedgerScreen(
     nowMillis: Long = System.currentTimeMillis(),
     onBudgetClick: () -> Unit = {},
     onCalendarClick: () -> Unit = {},
+    onTransactionClick: (String) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
     var monthOffset by rememberSaveable { mutableIntStateOf(0) }
@@ -189,7 +191,7 @@ fun LedgerScreen(
         } else {
             val groups = visibleTransactions.groupBy { it.occurredAt.dayKey() }.entries.toList()
             items(groups, key = { it.key }) { group ->
-                DailyTransactionGroup(group.value)
+                DailyTransactionGroup(group.value, onTransactionClick)
             }
         }
         }
@@ -299,7 +301,10 @@ private fun BudgetHero(
 }
 
 @Composable
-private fun DailyTransactionGroup(transactions: List<TransactionListItem>) {
+private fun DailyTransactionGroup(
+    transactions: List<TransactionListItem>,
+    onTransactionClick: (String) -> Unit,
+) {
     val dayExpense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -321,7 +326,7 @@ private fun DailyTransactionGroup(transactions: List<TransactionListItem>) {
         OneLedgerCard(Modifier.fillMaxWidth()) {
             Column {
                 transactions.forEachIndexed { index, transaction ->
-                    TransactionRow(transaction)
+                    TransactionRow(transaction, onClick = { onTransactionClick(transaction.id) })
                     if (index != transactions.lastIndex) {
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 80.dp),
@@ -335,52 +340,62 @@ private fun DailyTransactionGroup(transactions: List<TransactionListItem>) {
 }
 
 @Composable
-private fun TransactionRow(transaction: TransactionListItem) {
+private fun TransactionRow(
+    transaction: TransactionListItem,
+    onClick: () -> Unit,
+) {
     val amountColor = when (transaction.type) {
         TransactionType.EXPENSE -> ExpenseCoral
         TransactionType.INCOME -> IncomeMint
         else -> SavingsAmber
     }
     val sign = if (transaction.type == TransactionType.EXPENSE) -1 else 1
-    Row(
+    PressableSurface(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .semantics(mergeDescendants = true) {},
+        color = Color.Transparent,
+        shape = RoundedCornerShape(12.dp),
     ) {
-        CategoryGlyph(
-            iconKey = transaction.iconKey,
-            color = colorFromLong(transaction.colorHex),
-            contentDescription = transaction.categoryName,
-        )
-        Column(
-            modifier = Modifier
-                .padding(start = 14.dp)
-                .weight(1f),
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(transaction.categoryName, style = MaterialTheme.typography.titleMedium)
-            Text(
-                buildString {
-                    append(transaction.occurredAt.timeLabel())
-                    if (transaction.note.isNotBlank()) append(" · ${transaction.note}")
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+            CategoryGlyph(
+                iconKey = transaction.iconKey,
+                color = colorFromLong(transaction.colorHex),
+                contentDescription = null,
             )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                MoneyFormatter.format(transaction.amountMinor * sign),
-                style = MaterialTheme.typography.titleLarge,
-                color = amountColor,
-                textAlign = TextAlign.End,
-            )
-            Text(
-                transaction.accountName,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(
+                modifier = Modifier
+                    .padding(start = 14.dp)
+                    .weight(1f),
+            ) {
+                Text(transaction.categoryName, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    buildString {
+                        append(transaction.occurredAt.timeLabel())
+                        if (transaction.note.isNotBlank()) append(" · ${transaction.note}")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    MoneyFormatter.format(transaction.amountMinor * sign),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = amountColor,
+                    textAlign = TextAlign.End,
+                )
+                Text(
+                    transaction.accountName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

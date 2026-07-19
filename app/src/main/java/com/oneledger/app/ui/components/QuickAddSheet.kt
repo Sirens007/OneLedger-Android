@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
@@ -58,6 +60,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +72,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.oneledger.app.data.local.AccountEntity
 import com.oneledger.app.data.local.CategoryEntity
+import com.oneledger.app.data.local.TransactionListItem
 import com.oneledger.app.domain.model.NewTransaction
 import com.oneledger.app.domain.model.TransactionType
 import com.oneledger.app.ui.theme.BrandBlue
@@ -94,6 +100,9 @@ fun QuickAddSheet(
     incomeCategories: List<CategoryEntity>,
     onDismiss: () -> Unit,
     onSave: (NewTransaction, Boolean) -> Unit,
+    initialTransaction: TransactionListItem? = null,
+    onDelete: (() -> Unit)? = null,
+    errorMessage: String? = null,
     nowMillis: Long = System.currentTimeMillis(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -110,6 +119,9 @@ fun QuickAddSheet(
             incomeCategories = incomeCategories,
             onDismiss = onDismiss,
             onSave = onSave,
+            initialTransaction = initialTransaction,
+            onDelete = onDelete,
+            errorMessage = errorMessage,
             nowMillis = nowMillis,
             modifier = Modifier
                 .fillMaxWidth()
@@ -125,20 +137,26 @@ private fun QuickAddContent(
     incomeCategories: List<CategoryEntity>,
     onDismiss: () -> Unit,
     onSave: (NewTransaction, Boolean) -> Unit,
+    initialTransaction: TransactionListItem?,
+    onDelete: (() -> Unit)?,
+    errorMessage: String?,
     nowMillis: Long,
     modifier: Modifier = Modifier,
 ) {
-    var type by rememberSaveable { mutableStateOf(TransactionType.EXPENSE) }
-    var amount by rememberSaveable { mutableStateOf("") }
-    var accumulator by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingOperator by rememberSaveable { mutableStateOf<String?>(null) }
-    var note by rememberSaveable { mutableStateOf("") }
-    var showNote by rememberSaveable { mutableStateOf(false) }
-    var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedAccountId by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedToAccountId by rememberSaveable { mutableStateOf<String?>(null) }
-    var occurredAt by rememberSaveable { mutableLongStateOf(nowMillis) }
-    var showDateTimePicker by rememberSaveable { mutableStateOf(false) }
+    val editKey = initialTransaction?.id
+    val isEditing = initialTransaction != null
+    var type by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.type ?: TransactionType.EXPENSE) }
+    var amount by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.amountMinor?.amountInputValue().orEmpty()) }
+    var accumulator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
+    var pendingOperator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
+    var note by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.note.orEmpty()) }
+    var showNote by rememberSaveable(editKey) { mutableStateOf(!initialTransaction?.note.isNullOrBlank()) }
+    var selectedCategoryId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.categoryId) }
+    var selectedAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.accountId) }
+    var selectedToAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.toAccountId) }
+    var occurredAt by rememberSaveable(editKey) { mutableLongStateOf(initialTransaction?.occurredAt ?: nowMillis) }
+    var showDateTimePicker by rememberSaveable(editKey) { mutableStateOf(false) }
+    var showDeleteConfirm by rememberSaveable(editKey) { mutableStateOf(false) }
     val categories = when (type) {
         TransactionType.EXPENSE -> expenseCategories
         TransactionType.INCOME -> incomeCategories
@@ -213,7 +231,7 @@ private fun QuickAddContent(
             .background(MaterialTheme.colorScheme.background)
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 10.dp),
     ) {
-        QuickAddHeader(type = type, onTypeSelected = { type = it }, onDismiss = onDismiss)
+        QuickAddHeader(type = type, isEditing = isEditing, onTypeSelected = { type = it }, onDismiss = onDismiss)
         Spacer(Modifier.height(10.dp))
         if (type == TransactionType.TRANSFER) {
             TransferAccountSelector(
@@ -251,15 +269,28 @@ private fun QuickAddContent(
             onNoteChange = { if (it.length <= 60) note = it },
             onDateClick = { showDateTimePicker = true },
         )
+        if (!errorMessage.isNullOrBlank()) {
+            Text(
+                text = errorMessage,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 7.dp, start = 4.dp, end = 4.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+                color = ExpenseCoral,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Spacer(Modifier.height(10.dp))
         CalculatorPad(
             accent = accent,
             canSave = canSave,
+            isEditing = isEditing,
             onDigit = ::inputDigit,
             onOperator = ::inputOperator,
             onBackspace = { if (amount.isNotEmpty()) amount = amount.dropLast(1) },
             onSaveAgain = { save(true) },
             onDone = { save(false) },
+            onDelete = { showDeleteConfirm = true },
         )
     }
 
@@ -273,11 +304,33 @@ private fun QuickAddContent(
             },
         )
     }
+
+    if (showDeleteConfirm && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("删除这笔账单？") },
+            text = { Text("账单会从余额、预算和统计中移除，删除后可在提示中撤销。") },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                ) {
+                    Text("删除账单", color = ExpenseCoral, fontWeight = FontWeight.Bold)
+                }
+            },
+        )
+    }
 }
 
 @Composable
 private fun QuickAddHeader(
     type: String,
+    isEditing: Boolean,
     onTypeSelected: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -292,7 +345,11 @@ private fun QuickAddHeader(
             shape = RoundedCornerShape(15.dp),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Close, contentDescription = "关闭记账", modifier = Modifier.size(24.dp))
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = if (isEditing) "关闭账单编辑" else "关闭记账",
+                    modifier = Modifier.size(24.dp),
+                )
             }
         }
         Spacer(Modifier.weight(1f))
@@ -308,7 +365,11 @@ private fun QuickAddHeader(
         }
         Spacer(Modifier.weight(1f))
         Box(modifier = Modifier.width(44.dp), contentAlignment = Alignment.CenterEnd) {
-            Text("账本", color = BrandBlueLight, style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (isEditing) "编辑" else "账本",
+                color = BrandBlueLight,
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
     }
 }
@@ -583,36 +644,41 @@ private fun AmountPanel(
 private fun CalculatorPad(
     accent: Color,
     canSave: Boolean,
+    isEditing: Boolean,
     onDigit: (String) -> Unit,
     onOperator: (String) -> Unit,
     onBackspace: () -> Unit,
     onSaveAgain: () -> Unit,
     onDone: () -> Unit,
+    onDelete: () -> Unit,
 ) {
+    val secondaryAction = if (isEditing) "删除" else "再记"
+    val primaryAction = if (isEditing) "保存" else "完成"
     val rows = listOf(
         listOf("1", "2", "3", "+"),
         listOf("4", "5", "6", "−"),
-        listOf("7", "8", "9", "再记"),
-        listOf(".", "0", "⌫", "完成"),
+        listOf("7", "8", "9", secondaryAction),
+        listOf(".", "0", "⌫", primaryAction),
     )
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         rows.forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 row.forEach { key ->
-                    val primary = key == "完成"
-                    val secondary = key == "再记"
+                    val primary = key == primaryAction
+                    val secondary = key == secondaryAction
                     PressableSurface(
                         onClick = {
                             when (key) {
                                 "+", "−" -> onOperator(key)
                                 "⌫" -> onBackspace()
                                 "再记" -> onSaveAgain()
-                                "完成" -> onDone()
+                                "删除" -> onDelete()
+                                primaryAction -> onDone()
                                 else -> onDigit(key)
                             }
                         },
                         enabled = when (key) {
-                            "完成", "再记" -> canSave
+                            primaryAction, "再记" -> canSave
                             else -> true
                         },
                         modifier = Modifier
@@ -620,6 +686,7 @@ private fun CalculatorPad(
                             .height(50.dp),
                         color = when {
                             primary -> accent
+                            key == "删除" -> ExpenseCoral.copy(alpha = 0.16f)
                             secondary -> accent.copy(alpha = 0.16f)
                             else -> MaterialTheme.colorScheme.surface
                         },
@@ -628,15 +695,15 @@ private fun CalculatorPad(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             when (key) {
                                 "⌫" -> Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = "退格")
-                                "完成" -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                primaryAction -> Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Text("完成", modifier = Modifier.padding(start = 4.dp), fontWeight = FontWeight.Bold)
+                                    Text(primaryAction, modifier = Modifier.padding(start = 4.dp), fontWeight = FontWeight.Bold)
                                 }
                                 else -> Text(
                                     key,
-                                    style = if (key == "再记") MaterialTheme.typography.labelLarge else MaterialTheme.typography.headlineMedium,
-                                    color = if (primary) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = if (key == "再记") FontWeight.Bold else FontWeight.Medium,
+                                    style = if (secondary) MaterialTheme.typography.labelLarge else MaterialTheme.typography.headlineMedium,
+                                    color = if (key == "删除") ExpenseCoral else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (secondary) FontWeight.Bold else FontWeight.Medium,
                                 )
                             }
                         }
@@ -874,6 +941,7 @@ internal fun QuickAddPreviewSurface(
     expenseCategories: List<CategoryEntity>,
     incomeCategories: List<CategoryEntity>,
     nowMillis: Long,
+    initialTransaction: TransactionListItem? = null,
 ) {
     QuickAddContent(
         accounts = accounts,
@@ -881,6 +949,9 @@ internal fun QuickAddPreviewSurface(
         incomeCategories = incomeCategories,
         onDismiss = {},
         onSave = { _, _ -> },
+        initialTransaction = initialTransaction,
+        onDelete = if (initialTransaction == null) null else ({ }),
+        errorMessage = null,
         nowMillis = nowMillis,
         modifier = Modifier.fillMaxSize(),
     )
@@ -926,6 +997,10 @@ private fun resolveAmount(accumulator: String?, operator: String?, current: Stri
 
 private fun BigDecimal.plainAmount(): String = setScale(2, RoundingMode.HALF_UP)
     .stripTrailingZeros()
+    .toPlainString()
+
+private fun Long.amountInputValue(): String = BigDecimal.valueOf(this, 2)
+    .setScale(2, RoundingMode.UNNECESSARY)
     .toPlainString()
 
 private fun Long.shiftMonth(delta: Int): Long = Calendar.getInstance().apply {

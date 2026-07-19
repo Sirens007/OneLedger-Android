@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -49,6 +50,9 @@ interface LedgerDao {
     )
     fun observeTransactions(): Flow<List<TransactionListItem>>
 
+    @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
+    suspend fun getTransaction(id: String): TransactionEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBook(book: LedgerBookEntity)
 
@@ -67,8 +71,14 @@ interface LedgerDao {
     @Insert
     suspend fun insertTransaction(transaction: TransactionEntity)
 
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
+
     @Query("UPDATE transactions SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
     suspend fun softDeleteTransaction(id: String, deletedAt: Long)
+
+    @Query("UPDATE transactions SET deletedAt = NULL, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun restoreTransaction(id: String, updatedAt: Long)
 
     @Transaction
     suspend fun seed(
