@@ -2,6 +2,47 @@
 
 OneLedger 是一款本地优先的 Android 个人记账应用，目前处于 v0.1 本地 MVP 阶段。当前聚焦四件事：看账、记账、看资产、看趋势；数据默认只保存在设备的 Room/SQLite 数据库中，不要求登录或联网。
 
+## 界面预览
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="previews/01-ledger.png" width="260" alt="OneLedger 账本总览" /><br />
+      <strong>账本总览</strong><br />
+      <sub>集中查看月度预算、每日收支和最近账单</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="previews/08-quick-add.png" width="260" alt="OneLedger 快速记账" /><br />
+      <strong>快速记账</strong><br />
+      <sub>支持支出、收入、转账和连续记账</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="previews/05-budget-details.png" width="260" alt="OneLedger 预算轨道" /><br />
+      <strong>预算轨道</strong><br />
+      <sub>同时掌握总预算与分类预算的使用进度</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="previews/07-income-expense-calendar.png" width="260" alt="OneLedger 收支日历" /><br />
+      <strong>收支日历</strong><br />
+      <sub>按日期直览收入、支出与当日账单</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="previews/02-assets.png" width="260" alt="OneLedger 资产总览" /><br />
+      <strong>资产总览</strong><br />
+      <sub>汇总账户余额、资产负债与本月现金流</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="previews/04-statistics.png" width="260" alt="OneLedger 收支统计" /><br />
+      <strong>收支统计</strong><br />
+      <sub>通过资金脉冲和分类排行理解消费去向</sub>
+    </td>
+  </tr>
+</table>
+
+> 当前截图来自 Compose 截图回归基准；界面会随 v0.1 功能闭环继续迭代。
+
 ## 技术基线
 
 - Kotlin + Jetpack Compose + Material 3
