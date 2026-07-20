@@ -1,41 +1,53 @@
 package com.oneledger.app.ui.components
 
+import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationSource
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.imeNestedScroll
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.AccountBalanceWallet
@@ -62,6 +74,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -71,25 +84,28 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.DialogProperties
 import com.oneledger.app.data.local.AccountEntity
 import com.oneledger.app.data.local.CategoryEntity
@@ -113,10 +129,29 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private enum class QuickAddInputMode {
+internal enum class QuickAddFocusField {
     AMOUNT,
     NOTE,
 }
+
+internal data class QuickAddKeyboardState(
+    val customKeyboardVisible: Boolean,
+    val systemKeyboardVisible: Boolean,
+    val currentFocusField: QuickAddFocusField,
+) {
+    companion object {
+        fun from(
+            currentFocusField: QuickAddFocusField,
+            imeVisible: Boolean,
+        ): QuickAddKeyboardState = QuickAddKeyboardState(
+            customKeyboardVisible = currentFocusField == QuickAddFocusField.AMOUNT,
+            systemKeyboardVisible = imeVisible && currentFocusField == QuickAddFocusField.NOTE,
+            currentFocusField = currentFocusField,
+        )
+    }
+}
+
+private val QuickAddCustomKeyboardHeight = 231.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,6 +192,7 @@ fun QuickAddSheet(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuickAddContent(
     accounts: List<AccountEntity>,
@@ -172,14 +208,18 @@ private fun QuickAddContent(
 ) {
     val editKey = initialTransaction?.id
     val isEditing = initialTransaction != null
-    val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val amountFocusRequester = remember(editKey) { FocusRequester() }
+    val noteFocusRequester = remember(editKey) { FocusRequester() }
+    val hostView = LocalView.current
+    val density = LocalDensity.current
     var type by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.type ?: TransactionType.EXPENSE) }
     var amount by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.amountMinor?.amountInputValue().orEmpty()) }
     var accumulator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var pendingOperator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var note by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.note.orEmpty()) }
-    var inputMode by remember(editKey) { mutableStateOf(QuickAddInputMode.AMOUNT) }
+    var currentFocusField by rememberSaveable(editKey) { mutableStateOf(QuickAddFocusField.AMOUNT) }
+    var awaitingSystemIme by remember(editKey) { mutableStateOf(false) }
     var selectedCategoryId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.categoryId) }
     var selectedAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.accountId) }
     var selectedToAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.toAccountId) }
@@ -206,6 +246,44 @@ private fun QuickAddContent(
     val canSave = parsedAmount != null && parsedAmount > 0 && selectedAccountId != null && when (type) {
         TransactionType.TRANSFER -> selectedToAccountId != null && selectedToAccountId != selectedAccountId
         else -> selectedCategoryId != null
+    }
+    val systemKeyboardVisible = WindowInsets.isImeVisible
+    val keyboardState = QuickAddKeyboardState.from(
+        currentFocusField = currentFocusField,
+        imeVisible = systemKeyboardVisible,
+    )
+    val imeAnimationSourceBottom = WindowInsets.imeAnimationSource.getBottom(density)
+    val imeAnimationTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
+    val imeOpening = imeAnimationTargetBottom > imeAnimationSourceBottom
+    val preserveKeyboardFloor = currentFocusField == QuickAddFocusField.NOTE &&
+        (awaitingSystemIme || imeOpening)
+
+    DisposableEffect(hostView) {
+        val dialogWindow = ((hostView.parent as? DialogWindowProvider) ?: (hostView as? DialogWindowProvider))?.window
+        val previousSoftInputMode = dialogWindow?.attributes?.softInputMode
+        dialogWindow?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        onDispose {
+            if (previousSoftInputMode != null) dialogWindow.setSoftInputMode(previousSoftInputMode)
+        }
+    }
+
+    LaunchedEffect(editKey) {
+        when (currentFocusField) {
+            QuickAddFocusField.AMOUNT -> amountFocusRequester.requestFocus()
+            QuickAddFocusField.NOTE -> {
+                awaitingSystemIme = true
+                noteFocusRequester.requestFocus()
+                keyboardController?.show()
+            }
+        }
+    }
+    LaunchedEffect(currentFocusField, systemKeyboardVisible, imeAnimationTargetBottom) {
+        if (currentFocusField == QuickAddFocusField.AMOUNT ||
+            systemKeyboardVisible ||
+            imeAnimationTargetBottom > 0
+        ) {
+            awaitingSystemIme = false
+        }
     }
 
     LaunchedEffect(type, categories) {
@@ -266,6 +344,7 @@ private fun QuickAddContent(
 
     Column(
         modifier = modifier
+            .imeNestedScroll()
             .background(MaterialTheme.colorScheme.background)
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 10.dp),
     ) {
@@ -316,18 +395,29 @@ private fun QuickAddContent(
             accent = accent,
             note = note,
             occurredAt = occurredAt,
+            amountFocusRequester = amountFocusRequester,
+            noteFocusRequester = noteFocusRequester,
             onNoteChange = { if (it.length <= 60) note = it },
             onNoteFocusChanged = { focused ->
-                if (focused) inputMode = QuickAddInputMode.NOTE
+                if (focused) {
+                    currentFocusField = QuickAddFocusField.NOTE
+                    awaitingSystemIme = true
+                    keyboardController?.show()
+                }
+            },
+            onAmountFocusChanged = { focused ->
+                if (focused) currentFocusField = QuickAddFocusField.AMOUNT
             },
             onAmountClick = {
-                focusManager.clearFocus(force = true)
+                currentFocusField = QuickAddFocusField.AMOUNT
+                awaitingSystemIme = false
+                amountFocusRequester.requestFocus()
                 keyboardController?.hide()
-                inputMode = QuickAddInputMode.AMOUNT
             },
             onNoteDone = {
-                inputMode = QuickAddInputMode.AMOUNT
-                focusManager.clearFocus(force = true)
+                currentFocusField = QuickAddFocusField.AMOUNT
+                awaitingSystemIme = false
+                amountFocusRequester.requestFocus()
                 keyboardController?.hide()
             },
             onDateClick = { showDateTimePicker = true },
@@ -343,37 +433,20 @@ private fun QuickAddContent(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        AnimatedVisibility(
-            visible = inputMode == QuickAddInputMode.AMOUNT,
-            enter = slideInVertically(
-                initialOffsetY = { it },
-                animationSpec = spring(
-                    dampingRatio = OneLedgerMotion.NoBounceDamping,
-                    stiffness = OneLedgerMotion.NavigationStiffness,
-                ),
-            ) + fadeIn(tween(OneLedgerMotion.InputSwapFadeMillis)),
-            exit = slideOutVertically(
-                targetOffsetY = { it },
-                animationSpec = tween(OneLedgerMotion.InputSwapExitMillis),
-            ) + fadeOut(tween(OneLedgerMotion.InputSwapFadeMillis)),
-            label = "calculator-visibility",
-        ) {
-            Column {
-                Spacer(Modifier.height(10.dp))
-                CalculatorPad(
-                    accent = accent,
-                    pendingOperator = pendingOperator,
-                    canSave = canSave,
-                    isEditing = isEditing,
-                    onDigit = ::inputDigit,
-                    onOperator = ::inputOperator,
-                    onBackspace = ::backspace,
-                    onSaveAgain = { save(true) },
-                    onDone = { save(false) },
-                    onDelete = { showDeleteConfirm = true },
-                )
-            }
-        }
+        QuickAddKeyboardDock(
+            state = keyboardState,
+            preserveSystemHandoffFloor = preserveKeyboardFloor,
+            accent = accent,
+            pendingOperator = pendingOperator,
+            canSave = canSave,
+            isEditing = isEditing,
+            onDigit = ::inputDigit,
+            onOperator = ::inputOperator,
+            onBackspace = ::backspace,
+            onSaveAgain = { save(true) },
+            onDone = { save(false) },
+            onDelete = { showDeleteConfirm = true },
+        )
     }
 
     if (showDateTimePicker) {
@@ -635,8 +708,11 @@ private fun AmountPanel(
     accent: Color,
     note: String,
     occurredAt: Long,
+    amountFocusRequester: FocusRequester,
+    noteFocusRequester: FocusRequester,
     onNoteChange: (String) -> Unit,
     onNoteFocusChanged: (Boolean) -> Unit,
+    onAmountFocusChanged: (Boolean) -> Unit,
     onAmountClick: () -> Unit,
     onNoteDone: () -> Unit,
     onDateClick: () -> Unit,
@@ -659,6 +735,8 @@ private fun AmountPanel(
                     expressionPrefix = expressionPrefix,
                     trailingOperator = trailingOperator,
                     accent = accent,
+                    focusRequester = amountFocusRequester,
+                    onFocusChanged = onAmountFocusChanged,
                     onClick = onAmountClick,
                 )
             }
@@ -689,6 +767,7 @@ private fun AmountPanel(
                     modifier = Modifier
                         .padding(start = 10.dp)
                         .weight(1f)
+                        .focusRequester(noteFocusRequester)
                         .onFocusChanged { onNoteFocusChanged(it.isFocused) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurface,
@@ -732,6 +811,8 @@ private fun AmountValueButton(
     expressionPrefix: String?,
     trailingOperator: String?,
     accent: Color,
+    focusRequester: FocusRequester,
+    onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -747,6 +828,8 @@ private fun AmountValueButton(
     Row(
         modifier = Modifier
             .padding(start = 2.dp)
+            .focusRequester(focusRequester)
+            .onFocusChanged { onFocusChanged(it.isFocused) }
             .graphicsLayer {
                 scaleX = 1f - (pressProgress * 0.018f)
                 scaleY = 1f - (pressProgress * 0.018f)
@@ -784,12 +867,97 @@ private fun AmountValueButton(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuickAddKeyboardDock(
+    state: QuickAddKeyboardState,
+    preserveSystemHandoffFloor: Boolean,
+    accent: Color,
+    pendingOperator: String?,
+    canSave: Boolean,
+    isEditing: Boolean,
+    onDigit: (String) -> Unit,
+    onOperator: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onSaveAgain: () -> Unit,
+    onDone: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val transition = updateTransition(targetState = state, label = "quick-add-keyboard-state")
+    val customKeyboardProgress by transition.animateFloat(
+        transitionSpec = {
+            spring(
+                dampingRatio = OneLedgerMotion.NoBounceDamping,
+                stiffness = OneLedgerMotion.KeyboardStiffness,
+            )
+        },
+        label = "custom-keyboard-progress",
+    ) { keyboardState ->
+        if (keyboardState.customKeyboardVisible) 1f else 0f
+    }
+    val keyboardFloor by animateDpAsState(
+        targetValue = if (state.customKeyboardVisible || preserveSystemHandoffFloor) {
+            QuickAddCustomKeyboardHeight
+        } else {
+            0.dp
+        },
+        animationSpec = spring(
+            dampingRatio = OneLedgerMotion.NoBounceDamping,
+            stiffness = OneLedgerMotion.KeyboardStiffness,
+        ),
+        label = "keyboard-dock-floor",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = keyboardFloor)
+            .clipToBounds(),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        // This size modifier reads IME insets during layout, on the same frame as the platform animation.
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime))
+        Box(
+            modifier = Modifier
+                .matchParentSize(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            // Keep the keypad composed so rapid focus changes retarget one transition instead of rebuilding it.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(QuickAddCustomKeyboardHeight)
+                    .graphicsLayer {
+                        alpha = customKeyboardProgress
+                        translationY = size.height * (1f - customKeyboardProgress)
+                    },
+            ) {
+                Spacer(Modifier.height(10.dp))
+                CalculatorPad(
+                    accent = accent,
+                    pendingOperator = pendingOperator,
+                    canSave = canSave,
+                    isEditing = isEditing,
+                    keyboardEnabled = state.customKeyboardVisible,
+                    onDigit = onDigit,
+                    onOperator = onOperator,
+                    onBackspace = onBackspace,
+                    onSaveAgain = onSaveAgain,
+                    onDone = onDone,
+                    onDelete = onDelete,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun CalculatorPad(
     accent: Color,
     pendingOperator: String?,
     canSave: Boolean,
     isEditing: Boolean,
+    keyboardEnabled: Boolean,
     onDigit: (String) -> Unit,
     onOperator: (String) -> Unit,
     onBackspace: () -> Unit,
@@ -825,8 +993,8 @@ private fun CalculatorPad(
                             }
                         },
                         enabled = when (key) {
-                            primaryAction, "再记" -> canSave
-                            else -> true
+                            primaryAction, "再记" -> keyboardEnabled && canSave
+                            else -> keyboardEnabled
                         },
                         modifier = Modifier
                             .weight(1f)
