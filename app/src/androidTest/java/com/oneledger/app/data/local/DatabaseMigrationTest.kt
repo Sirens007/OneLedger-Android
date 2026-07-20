@@ -83,6 +83,44 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrate2To3ClearsOnlyUntouchedDemoBudget() {
+        helper.createDatabase(TEST_DATABASE, 2).apply {
+            execSQL(
+                """
+                INSERT INTO ledger_books
+                    (id, name, currencyCode, isDefault, createdAt, updatedAt)
+                VALUES ('book-default', 'Default', 'CNY', 1, 1, 1)
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO budgets
+                    (id, bookId, categoryId, scopeKey, periodStart, periodEnd,
+                     limitMinor, createdAt, updatedAt)
+                VALUES
+                    ('budget-untouched', 'book-default', NULL, '$TOTAL_BUDGET_SCOPE',
+                     1, 100, 500000, 10, 10),
+                    ('budget-user-edited', 'book-default', NULL, '$TOTAL_BUDGET_SCOPE',
+                     101, 200, 500000, 10, 20)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(TEST_DATABASE, 3, true, MIGRATION_2_3).apply {
+            query("SELECT id, limitMinor FROM budgets ORDER BY id").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("budget-untouched", cursor.getString(0))
+                assertEquals(0L, cursor.getLong(1))
+                cursor.moveToNext()
+                assertEquals("budget-user-edited", cursor.getString(0))
+                assertEquals(500000L, cursor.getLong(1))
+            }
+            close()
+        }
+    }
+
     private companion object {
         const val TEST_DATABASE = "migration-test"
     }

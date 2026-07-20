@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
         BudgetEntity::class,
         SavingsPlanEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class OneLedgerDatabase : RoomDatabase() {
@@ -31,7 +31,7 @@ abstract class OneLedgerDatabase : RoomDatabase() {
                     OneLedgerDatabase::class.java,
                     "oneledger.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

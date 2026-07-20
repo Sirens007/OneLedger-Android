@@ -110,3 +110,27 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_budgets_categoryId` ON `budgets` (`categoryId`)")
     }
 }
+
+/**
+ * Restores the original empty-budget experience without overwriting a budget the user edited.
+ *
+ * The old demo seed is identifiable by its default-book id, generated budget id, total-budget
+ * scope, 5,000 CNY value, and unchanged created/updated timestamps. User-edited rows receive a new
+ * updatedAt value in [OfflineLedgerRepository.saveBudget] and are intentionally left untouched.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            UPDATE `budgets`
+            SET `limitMinor` = 0
+            WHERE `bookId` = 'book-default'
+              AND `id` LIKE 'budget-%'
+              AND `categoryId` IS NULL
+              AND `scopeKey` = '$TOTAL_BUDGET_SCOPE'
+              AND `limitMinor` = 500000
+              AND `createdAt` = `updatedAt`
+            """.trimIndent(),
+        )
+    }
+}

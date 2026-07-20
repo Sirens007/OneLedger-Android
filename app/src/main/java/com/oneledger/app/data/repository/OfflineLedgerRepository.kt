@@ -97,7 +97,7 @@ class OfflineLedgerRepository(
                 bookId = DEFAULT_BOOK_ID,
                 periodStart = month.start,
                 periodEnd = month.endExclusive,
-                limitMinor = 500_000,
+                limitMinor = 0,
                 createdAt = now,
                 updatedAt = now,
             ),
