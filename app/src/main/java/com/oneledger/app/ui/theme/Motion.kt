@@ -9,6 +9,8 @@ object OneLedgerMotion {
     const val NavigationExitMillis = 110
     const val ContentEnterMillis = 220
     const val ContentExitMillis = 140
+    const val InputSwapExitMillis = 150
+    const val InputSwapFadeMillis = 90
 
     const val NoBounceDamping = Spring.DampingRatioNoBouncy
     const val NavigationStiffness = Spring.StiffnessMedium

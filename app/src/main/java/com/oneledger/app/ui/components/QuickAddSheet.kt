@@ -5,11 +5,18 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,11 +39,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
@@ -65,6 +74,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -186,8 +196,12 @@ private fun QuickAddContent(
         TransactionType.INCOME -> IncomeMint
         else -> BrandBlue
     }
-    val displayAmount = amount.ifBlank { accumulator.orEmpty() }
-    val resolvedAmount = resolveAmount(accumulator, pendingOperator, amount)
+    val calculatorState = AmountCalculatorState(
+        current = amount,
+        accumulator = accumulator,
+        pendingOperator = pendingOperator,
+    )
+    val resolvedAmount = calculatorState.resolvedAmount()
     val parsedAmount = MoneyFormatter.parseToMinor(resolvedAmount.orEmpty())
     val canSave = parsedAmount != null && parsedAmount > 0 && selectedAccountId != null && when (type) {
         TransactionType.TRANSFER -> selectedToAccountId != null && selectedToAccountId != selectedAccountId
@@ -207,18 +221,24 @@ private fun QuickAddContent(
     }
 
     fun inputDigit(value: String) {
-        val next = when (value) {
-            "." -> if (amount.contains('.')) amount else if (amount.isBlank()) "0." else "$amount."
-            else -> if (amount == "0") value else amount + value
-        }
-        if (next.matches(Regex("^\\d{0,9}(\\.\\d{0,2})?$"))) amount = next
+        val next = AmountCalculatorState(amount, accumulator, pendingOperator).inputDigit(value)
+        amount = next.current
+        accumulator = next.accumulator
+        pendingOperator = next.pendingOperator
     }
 
     fun inputOperator(operator: String) {
-        val resolved = resolveAmount(accumulator, pendingOperator, amount) ?: return
-        accumulator = resolved
-        amount = ""
-        pendingOperator = operator
+        val next = AmountCalculatorState(amount, accumulator, pendingOperator).inputOperator(operator)
+        amount = next.current
+        accumulator = next.accumulator
+        pendingOperator = next.pendingOperator
+    }
+
+    fun backspace() {
+        val next = AmountCalculatorState(amount, accumulator, pendingOperator).backspace()
+        amount = next.current
+        accumulator = next.accumulator
+        pendingOperator = next.pendingOperator
     }
 
     fun save(keepOpen: Boolean) {
@@ -290,8 +310,9 @@ private fun QuickAddContent(
         )
         Spacer(Modifier.height(8.dp))
         AmountPanel(
-            amount = displayAmount,
-            pendingOperator = pendingOperator,
+            amount = calculatorState.displayAmount,
+            expressionPrefix = calculatorState.expressionPrefix,
+            trailingOperator = calculatorState.trailingOperator,
             accent = accent,
             note = note,
             occurredAt = occurredAt,
@@ -300,9 +321,9 @@ private fun QuickAddContent(
                 if (focused) inputMode = QuickAddInputMode.NOTE
             },
             onAmountClick = {
-                inputMode = QuickAddInputMode.AMOUNT
                 focusManager.clearFocus(force = true)
                 keyboardController?.hide()
+                inputMode = QuickAddInputMode.AMOUNT
             },
             onNoteDone = {
                 inputMode = QuickAddInputMode.AMOUNT
@@ -324,19 +345,29 @@ private fun QuickAddContent(
         }
         AnimatedVisibility(
             visible = inputMode == QuickAddInputMode.AMOUNT,
-            enter = fadeIn(tween(OneLedgerMotion.NavigationEnterMillis)),
-            exit = fadeOut(tween(OneLedgerMotion.NavigationExitMillis)),
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(
+                    dampingRatio = OneLedgerMotion.NoBounceDamping,
+                    stiffness = OneLedgerMotion.NavigationStiffness,
+                ),
+            ) + fadeIn(tween(OneLedgerMotion.InputSwapFadeMillis)),
+            exit = slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = tween(OneLedgerMotion.InputSwapExitMillis),
+            ) + fadeOut(tween(OneLedgerMotion.InputSwapFadeMillis)),
             label = "calculator-visibility",
         ) {
             Column {
                 Spacer(Modifier.height(10.dp))
                 CalculatorPad(
                     accent = accent,
+                    pendingOperator = pendingOperator,
                     canSave = canSave,
                     isEditing = isEditing,
                     onDigit = ::inputDigit,
                     onOperator = ::inputOperator,
-                    onBackspace = { if (amount.isNotEmpty()) amount = amount.dropLast(1) },
+                    onBackspace = ::backspace,
                     onSaveAgain = { save(true) },
                     onDone = { save(false) },
                     onDelete = { showDeleteConfirm = true },
@@ -599,7 +630,8 @@ private fun QuickOptionChip(
 @Composable
 private fun AmountPanel(
     amount: String,
-    pendingOperator: String?,
+    expressionPrefix: String?,
+    trailingOperator: String?,
     accent: Color,
     note: String,
     occurredAt: Long,
@@ -618,26 +650,17 @@ private fun AmountPanel(
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 11.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onAmountClick),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Text("¥", style = MaterialTheme.typography.headlineMedium, color = accent)
-                Text(
-                    text = amount.ifBlank { "0.00" },
-                    modifier = Modifier.padding(start = 2.dp),
-                    style = MaterialTheme.typography.displaySmall.copy(fontSize = 36.sp),
-                    color = accent,
-                    maxLines = 1,
+                AmountValueButton(
+                    amount = amount,
+                    expressionPrefix = expressionPrefix,
+                    trailingOperator = trailingOperator,
+                    accent = accent,
+                    onClick = onAmountClick,
                 )
-                pendingOperator?.let {
-                    Text(
-                        "  $it",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                }
             }
             Spacer(Modifier.height(7.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)))
@@ -704,8 +727,67 @@ private fun AmountPanel(
 }
 
 @Composable
+private fun AmountValueButton(
+    amount: String,
+    expressionPrefix: String?,
+    trailingOperator: String?,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressProgress by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = if (pressed) snap() else spring(
+            dampingRatio = OneLedgerMotion.NoBounceDamping,
+            stiffness = OneLedgerMotion.PressStiffness,
+        ),
+        label = "amount-press-feedback",
+    )
+    Row(
+        modifier = Modifier
+            .padding(start = 2.dp)
+            .graphicsLayer {
+                scaleX = 1f - (pressProgress * 0.018f)
+                scaleY = 1f - (pressProgress * 0.018f)
+                alpha = 1f - (pressProgress * 0.14f)
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(top = 3.dp, end = 8.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        expressionPrefix?.let {
+            Text(
+                text = "$it  ",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+            )
+        }
+        Text(
+            text = amount.ifBlank { "0.00" },
+            style = MaterialTheme.typography.displaySmall.copy(fontSize = 36.sp),
+            color = accent,
+            maxLines = 1,
+        )
+        trailingOperator?.let {
+            Text(
+                text = "  $it",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.titleLarge,
+            )
+        }
+    }
+}
+
+@Composable
 private fun CalculatorPad(
     accent: Color,
+    pendingOperator: String?,
     canSave: Boolean,
     isEditing: Boolean,
     onDigit: (String) -> Unit,
@@ -729,6 +811,8 @@ private fun CalculatorPad(
                 row.forEach { key ->
                     val primary = key == primaryAction
                     val secondary = key == secondaryAction
+                    val operator = key == "+" || key == "−"
+                    val selectedOperator = operator && key == pendingOperator
                     PressableSurface(
                         onClick = {
                             when (key) {
@@ -751,20 +835,42 @@ private fun CalculatorPad(
                             primary -> accent
                             key == "删除" -> ExpenseCoral.copy(alpha = 0.16f)
                             secondary -> accent.copy(alpha = 0.16f)
+                            selectedOperator -> accent.copy(alpha = 0.18f)
+                            operator -> MaterialTheme.colorScheme.surfaceVariant
                             else -> MaterialTheme.colorScheme.surface
                         },
                         shape = RoundedCornerShape(15.dp),
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             when (key) {
-                                "⌫" -> Icon(Icons.AutoMirrored.Filled.Backspace, contentDescription = "退格")
+                                "+" -> Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "加",
+                                    modifier = Modifier.size(24.dp),
+                                    tint = if (selectedOperator) accent else MaterialTheme.colorScheme.onSurface,
+                                )
+                                "−" -> Icon(
+                                    Icons.Default.Remove,
+                                    contentDescription = "减",
+                                    modifier = Modifier.size(24.dp),
+                                    tint = if (selectedOperator) accent else MaterialTheme.colorScheme.onSurface,
+                                )
+                                "⌫" -> Icon(
+                                    Icons.AutoMirrored.Filled.Backspace,
+                                    contentDescription = "退格",
+                                    modifier = Modifier.size(24.dp),
+                                )
                                 primaryAction -> Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Text(primaryAction, modifier = Modifier.padding(start = 4.dp), fontWeight = FontWeight.Bold)
                                 }
                                 else -> Text(
                                     key,
-                                    style = if (secondary) MaterialTheme.typography.labelLarge else MaterialTheme.typography.headlineMedium,
+                                    style = if (secondary) {
+                                        MaterialTheme.typography.labelLarge
+                                    } else {
+                                        MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp)
+                                    },
                                     color = if (key == "删除") ExpenseCoral else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (secondary) FontWeight.Bold else FontWeight.Medium,
                                 )
@@ -1044,23 +1150,6 @@ internal fun TransactionDateTimePreviewSurface(nowMillis: Long) {
         )
     }
 }
-
-private fun resolveAmount(accumulator: String?, operator: String?, current: String): String? {
-    val right = current.toBigDecimalOrNull()
-    if (accumulator == null) return right?.plainAmount()
-    if (operator == null || right == null) return accumulator
-    val left = accumulator.toBigDecimalOrNull() ?: return null
-    val result = when (operator) {
-        "+" -> left + right
-        "−" -> left - right
-        else -> right
-    }
-    return result.coerceAtLeast(BigDecimal.ZERO).plainAmount()
-}
-
-private fun BigDecimal.plainAmount(): String = setScale(2, RoundingMode.HALF_UP)
-    .stripTrailingZeros()
-    .toPlainString()
 
 private fun Long.amountInputValue(): String = BigDecimal.valueOf(this, 2)
     .setScale(2, RoundingMode.UNNECESSARY)
