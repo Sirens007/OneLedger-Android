@@ -36,3 +36,22 @@ fun Long.nextLocalDayStart(): Long = Calendar.getInstance().apply {
     timeInMillis = this@nextLocalDayStart
     add(Calendar.DAY_OF_MONTH, 1)
 }.timeInMillis
+
+fun Long.localDayOfMonth(): Int = Calendar.getInstance().apply {
+    timeInMillis = this@localDayOfMonth
+}.get(Calendar.DAY_OF_MONTH)
+
+/**
+ * Keeps a user's preferred day while paging between months, clamping only for
+ * shorter months. For example, January 31 -> February 28 -> March 31.
+ */
+fun MonthWindow.clampedDayStart(preferredDayOfMonth: Int): Long {
+    val calendar = Calendar.getInstance().apply {
+        timeInMillis = start
+        set(
+            Calendar.DAY_OF_MONTH,
+            preferredDayOfMonth.coerceIn(1, getActualMaximum(Calendar.DAY_OF_MONTH)),
+        )
+    }
+    return calendar.timeInMillis
+}

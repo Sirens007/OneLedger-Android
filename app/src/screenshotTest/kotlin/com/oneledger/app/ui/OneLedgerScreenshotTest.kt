@@ -18,6 +18,7 @@ import com.oneledger.app.domain.model.AccountType
 import com.oneledger.app.domain.model.SavingsMethod
 import com.oneledger.app.domain.model.TransactionType
 import com.oneledger.app.ui.components.QuickAddPreviewSurface
+import com.oneledger.app.ui.components.AmountCalculatorState
 import com.oneledger.app.ui.components.TransactionDateTimePreviewSurface
 import com.oneledger.app.ui.screens.BudgetEditorPreviewSurface
 import com.oneledger.app.ui.screens.IncomeExpenseCalendarScreen
@@ -112,6 +113,29 @@ fun QuickAddScreenshot() {
             expenseCategories = state.expenseCategories,
             incomeCategories = state.incomeCategories,
             nowMillis = PREVIEW_NOW,
+        )
+    }
+}
+
+@PreviewTest
+@Preview(name = "快速记账 · 表达式", device = PHONE, uiMode = Configuration.UI_MODE_NIGHT_YES, showSystemUi = true)
+@Composable
+fun QuickAddExpressionScreenshot() {
+    val state = previewState()
+    val expression = AmountCalculatorState()
+        .inputDigit("1")
+        .inputDigit("2")
+        .inputOperator("+")
+        .inputDigit("1")
+        .inputOperator("−")
+        .inputDigit("2")
+    OneLedgerTheme(darkTheme = true) {
+        QuickAddPreviewSurface(
+            accounts = state.accounts,
+            expenseCategories = state.expenseCategories,
+            incomeCategories = state.incomeCategories,
+            nowMillis = PREVIEW_NOW,
+            initialCalculatorState = expression,
         )
     }
 }

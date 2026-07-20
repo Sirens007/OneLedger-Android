@@ -14,6 +14,7 @@ class QuickAddKeyboardStateTest {
         )
 
         assertTrue(state.customKeyboardVisible)
+        assertTrue(state.customKeyboardEnabled)
         assertFalse(state.systemKeyboardVisible)
     }
 
@@ -37,14 +38,31 @@ class QuickAddKeyboardStateTest {
     }
 
     @Test
-    fun handoffModeReportsNeitherKeyboard() {
+    fun customToSystemHandoffKeepsOutgoingSurfaceComposedAndEnablesNote() {
+        val stateBeforeIme = QuickAddKeyboardState(
+            mode = KeyboardMode.CUSTOM_TO_SYSTEM,
+            currentFocusField = QuickAddFocusField.NOTE,
+            imeVisible = false,
+        )
+        val stateDuringIme = stateBeforeIme.copy(imeVisible = true)
+
+        assertTrue(stateBeforeIme.customKeyboardVisible)
+        assertTrue(stateDuringIme.customKeyboardVisible)
+        assertFalse(stateBeforeIme.customKeyboardEnabled)
+        assertTrue(stateBeforeIme.noteInputEnabled)
+    }
+
+    @Test
+    fun systemToCustomHandoffExposesOnlyTheCustomKeyboardForInput() {
         val state = QuickAddKeyboardState(
-            mode = KeyboardMode.NONE,
+            mode = KeyboardMode.SYSTEM_TO_CUSTOM,
             currentFocusField = QuickAddFocusField.AMOUNT,
             imeVisible = true,
         )
 
-        assertFalse(state.customKeyboardVisible)
+        assertTrue(state.customKeyboardVisible)
+        assertTrue(state.customKeyboardEnabled)
         assertFalse(state.systemKeyboardVisible)
+        assertFalse(state.noteInputEnabled)
     }
 }

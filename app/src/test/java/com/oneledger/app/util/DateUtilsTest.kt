@@ -93,4 +93,34 @@ class DateUtilsTest {
 
         assertEquals(2031, timestamp.localYear())
     }
+
+    @Test
+    fun clampedDayPreservesPreferredDayAcrossShortMonth() {
+        val januaryNow = Calendar.getInstance().apply {
+            set(2027, Calendar.JANUARY, 31, 12, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        val february = Calendar.getInstance().apply {
+            timeInMillis = MonthWindow.offset(1, januaryNow).clampedDayStart(31)
+        }
+        val march = Calendar.getInstance().apply {
+            timeInMillis = MonthWindow.offset(2, januaryNow).clampedDayStart(31)
+        }
+
+        assertEquals(Calendar.FEBRUARY, february.get(Calendar.MONTH))
+        assertEquals(28, february.get(Calendar.DAY_OF_MONTH))
+        assertEquals(Calendar.MARCH, march.get(Calendar.MONTH))
+        assertEquals(31, march.get(Calendar.DAY_OF_MONTH))
+    }
+
+    @Test
+    fun localDayOfMonthUsesSuppliedTimestamp() {
+        val timestamp = Calendar.getInstance().apply {
+            set(2031, Calendar.APRIL, 27, 12, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        assertEquals(27, timestamp.localDayOfMonth())
+    }
 }

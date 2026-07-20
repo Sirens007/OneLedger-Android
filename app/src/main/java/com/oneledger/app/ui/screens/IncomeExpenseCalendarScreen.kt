@@ -1,12 +1,5 @@
 package com.oneledger.app.ui.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -39,16 +32,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,7 +63,6 @@ import com.oneledger.app.ui.components.colorFromLong
 import com.oneledger.app.ui.theme.BrandBlue
 import com.oneledger.app.ui.theme.ExpenseCoral
 import com.oneledger.app.ui.theme.IncomeMint
-import com.oneledger.app.ui.theme.OneLedgerMotion
 import com.oneledger.app.ui.theme.SavingsAmber
 import com.oneledger.app.util.CalendarDateCell
 import com.oneledger.app.util.ChineseCalendarLabel
@@ -73,23 +70,55 @@ import com.oneledger.app.util.MoneyFormatter
 import com.oneledger.app.util.MonthWindow
 import com.oneledger.app.util.calendarDateCells
 import com.oneledger.app.util.chineseCalendarLabel
-import com.oneledger.app.util.dayKey
+import com.oneledger.app.util.clampedDayStart
 import com.oneledger.app.util.dayLabel
-import com.oneledger.app.util.isIn
+import com.oneledger.app.util.localDayOfMonth
 import com.oneledger.app.util.monthLabel
 import com.oneledger.app.util.startOfLocalDay
 import com.oneledger.app.util.timeLabel
 import java.text.DecimalFormat
+import java.util.Collections
+import java.util.LinkedHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val CalendarPageCount = Int.MAX_VALUE
 private const val CalendarInitialPage = CalendarPageCount / 2
+private const val CalendarMonthCacheSize = 5
+private val CalendarPagerHeight = 454.dp
+private val WeekdayLabels = listOf("日", "一", "二", "三", "四", "五", "六")
+private val CalendarAmountFormat = object : ThreadLocal<DecimalFormat>() {
+    override fun initialValue(): DecimalFormat = DecimalFormat("0.#")
+}
 
 private data class CalendarDaySummary(
     val expenseMinor: Long,
     val incomeMinor: Long,
+)
+
+private data class CalendarDataIndex(
+    val transactionsByDay: Map<Long, List<TransactionListItem>>,
+    val summariesByDay: Map<Long, CalendarDaySummary>,
+) {
+    companion object {
+        val Empty = CalendarDataIndex(emptyMap(), emptyMap())
+    }
+}
+
+private data class CalendarMonthUiState(
+    val window: MonthWindow,
+    val cells: List<CalendarDateCell>,
+    val chineseLabels: Map<Long, ChineseCalendarLabel>,
+)
+
+private val calendarMonthCache = Collections.synchronizedMap(
+    object : LinkedHashMap<Long, CalendarMonthUiState>(CalendarMonthCacheSize, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<Long, CalendarMonthUiState>?,
+        ): Boolean = size > CalendarMonthCacheSize
+    },
 )
 
 @Composable
@@ -98,11 +127,14 @@ fun IncomeExpenseCalendarScreen(
     onBack: () -> Unit,
     onQuickAdd: () -> Unit,
     modifier: Modifier = Modifier,
-    nowMillis: Long = System.currentTimeMillis(),
+    nowMillis: Long? = null,
     initialSelectedDayStart: Long? = null,
     initialMonthOffset: Int = 0,
     onTransactionClick: (String) -> Unit = {},
 ) {
+    // Capture "now" once for a screen session. A default expression calling currentTimeMillis()
+    // would otherwise remap every pager page whenever the parent recomposes.
+    val calendarAnchorMillis = remember(nowMillis) { nowMillis ?: System.currentTimeMillis() }
     val initialPage = remember(initialMonthOffset) {
         (CalendarInitialPage + initialMonthOffset).coerceIn(0, CalendarPageCount - 1)
     }
@@ -111,44 +143,61 @@ fun IncomeExpenseCalendarScreen(
         pageCount = { CalendarPageCount },
     )
     val scope = rememberCoroutineScope()
-    val settledMonthOffset = pagerState.settledPage - CalendarInitialPage
-    val settledMonthWindow = remember(settledMonthOffset, nowMillis) {
-        MonthWindow.offset(settledMonthOffset, nowMillis)
+    val inspectionMode = LocalInspectionMode.current
+    val initialMonthWindow = remember(initialMonthOffset, calendarAnchorMillis) {
+        MonthWindow.offset(initialMonthOffset, calendarAnchorMillis)
     }
-    var selectedDayStart by rememberSaveable(settledMonthWindow.start, initialSelectedDayStart) {
-        val requestedDay = initialSelectedDayStart?.startOfLocalDay()
+    val requestedStart = remember(initialSelectedDayStart) {
+        initialSelectedDayStart?.startOfLocalDay()
+    }
+    val initialPreferredDay = remember(requestedStart, calendarAnchorMillis) {
+        requestedStart?.localDayOfMonth() ?: calendarAnchorMillis.localDayOfMonth()
+    }
+    var preferredDayOfMonth by rememberSaveable {
+        mutableIntStateOf(initialPreferredDay)
+    }
+    var selectedDayStart by rememberSaveable {
         mutableLongStateOf(
-            when {
-                requestedDay != null && requestedDay.isIn(settledMonthWindow) -> requestedDay
-                nowMillis.isIn(settledMonthWindow) -> nowMillis.startOfLocalDay()
-                else -> settledMonthWindow.start
+            if (requestedStart != null && requestedStart >= initialMonthWindow.start &&
+                requestedStart < initialMonthWindow.endExclusive
+            ) {
+                requestedStart
+            } else {
+                initialMonthWindow.clampedDayStart(initialPreferredDay)
             },
         )
     }
-    val transactionsByDay = remember(state.transactions) {
-        state.transactions.groupBy { it.occurredAt.dayKey() }
+    val initialCalendarData = remember(state.transactions, inspectionMode) {
+        if (inspectionMode) buildCalendarDataIndex(state.transactions) else CalendarDataIndex.Empty
     }
-    val summariesByDay = remember(transactionsByDay) {
-        transactionsByDay.mapValues { (_, transactions) ->
-            var expenseMinor = 0L
-            var incomeMinor = 0L
-            transactions.forEach { transaction ->
-                when (transaction.type) {
-                    TransactionType.EXPENSE -> expenseMinor += transaction.amountMinor
-                    TransactionType.INCOME -> incomeMinor += transaction.amountMinor
-                    TransactionType.TRANSFER -> Unit
-                }
+    val calendarData by produceState(
+        initialValue = initialCalendarData,
+        key1 = state.transactions,
+    ) {
+        if (!inspectionMode) {
+            value = withContext(Dispatchers.Default) {
+                buildCalendarDataIndex(state.transactions)
             }
-            CalendarDaySummary(
-                expenseMinor = expenseMinor,
-                incomeMinor = incomeMinor,
-            )
         }
     }
-    val visibleMonthOffset = pagerState.currentPage - CalendarInitialPage
-    val visibleMonthWindow = remember(visibleMonthOffset, nowMillis) {
-        MonthWindow.offset(visibleMonthOffset, nowMillis)
+
+    LaunchedEffect(pagerState, calendarAnchorMillis) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { settledPage ->
+                val window = MonthWindow.offset(
+                    monthOffset = settledPage - CalendarInitialPage,
+                    now = calendarAnchorMillis,
+                )
+                selectedDayStart = window.clampedDayStart(preferredDayOfMonth)
+            }
     }
+
+    val visibleMonthOffset = pagerState.currentPage - CalendarInitialPage
+    val visibleMonthWindow = remember(visibleMonthOffset, calendarAnchorMillis) {
+        MonthWindow.offset(visibleMonthOffset, calendarAnchorMillis)
+    }
+    val selectedTransactions = calendarData.transactionsByDay[selectedDayStart].orEmpty()
 
     Column(
         modifier = modifier
@@ -164,88 +213,100 @@ fun IncomeExpenseCalendarScreen(
             label = visibleMonthWindow.monthLabel(),
             onPrevious = {
                 scope.launch {
-                    pagerState.animateScrollToPage(
-                        page = pagerState.currentPage - 1,
-                        animationSpec = tween(OneLedgerMotion.ContentEnterMillis, easing = FastOutSlowInEasing),
-                    )
+                    val anchor = if (pagerState.isScrollInProgress) {
+                        pagerState.targetPage
+                    } else {
+                        pagerState.currentPage
+                    }
+                    pagerState.animateScrollToPage((anchor - 1).coerceAtLeast(0))
                 }
             },
             onNext = {
                 scope.launch {
+                    val anchor = if (pagerState.isScrollInProgress) {
+                        pagerState.targetPage
+                    } else {
+                        pagerState.currentPage
+                    }
                     pagerState.animateScrollToPage(
-                        page = pagerState.currentPage + 1,
-                        animationSpec = tween(OneLedgerMotion.ContentEnterMillis, easing = FastOutSlowInEasing),
+                        (anchor + 1).coerceAtMost(CalendarPageCount - 1),
                     )
                 }
             },
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
         )
-        HorizontalPager(
-            state = pagerState,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
-            beyondViewportPageCount = 1,
-            key = { it },
-            verticalAlignment = Alignment.Top,
-        ) { page ->
-            val pageMonthOffset = page - CalendarInitialPage
-            val pageMonthWindow = remember(pageMonthOffset, nowMillis) {
-                MonthWindow.offset(pageMonthOffset, nowMillis)
-            }
-            val pageCells = remember(pageMonthWindow) { pageMonthWindow.calendarDateCells() }
-            val chineseLabels by produceState<Map<Long, ChineseCalendarLabel>>(
-                initialValue = if (page == initialPage) {
-                    pageCells.associate { cell -> cell.startMillis to cell.startMillis.chineseCalendarLabel() }
-                } else {
-                    emptyMap()
-                },
-                key1 = pageMonthWindow.start,
-            ) {
-                value = withContext(Dispatchers.Default) {
-                    pageCells.associate { cell -> cell.startMillis to cell.startMillis.chineseCalendarLabel() }
-                }
-            }
-            val pageSelectedDayStart = if (page == pagerState.settledPage) {
-                selectedDayStart
-            } else {
-                pageMonthWindow.defaultSelectedDay(nowMillis)
-            }
-            val pageSelectedTransactions = transactionsByDay[pageSelectedDayStart.dayKey()].orEmpty()
-
-            LazyColumn(
+                .height(CalendarPagerHeight)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-                                RoundedCornerShape(26.dp),
-                            ),
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(26.dp),
-                    ) {
-                        CalendarGrid(
-                            cells = pageCells,
-                            summariesByDay = summariesByDay,
-                            chineseLabels = chineseLabels,
-                            selectedDayStart = pageSelectedDayStart,
-                            onDaySelected = { selectedDayStart = it },
+                beyondViewportPageCount = 1,
+                key = { it },
+                verticalAlignment = Alignment.Top,
+            ) { page ->
+                val monthOffset = page - CalendarInitialPage
+                val window = remember(monthOffset, calendarAnchorMillis) {
+                    MonthWindow.offset(monthOffset, calendarAnchorMillis)
+                }
+                val initialMonthState = remember(window.start, inspectionMode) {
+                    cachedCalendarMonth(window.start) ?: calendarMonthSkeleton(
+                        window = window,
+                        includeChineseLabels = inspectionMode,
+                    )
+                }
+                val monthUiState by produceState(
+                    initialValue = initialMonthState,
+                    key1 = window.start,
+                ) {
+                    if (!inspectionMode && value.chineseLabels.isEmpty()) {
+                        value = cachedCalendarMonth(window.start) ?: loadCalendarMonth(
+                            window = window,
+                            cells = value.cells,
                         )
                     }
                 }
-                item {
-                    SelectedDayTransactions(
-                        dayStart = pageSelectedDayStart,
-                        transactions = pageSelectedTransactions,
-                        onTransactionClick = onTransactionClick,
+                val selectedForPage = window.clampedDayStart(preferredDayOfMonth)
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                            RoundedCornerShape(26.dp),
+                        ),
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(26.dp),
+                ) {
+                    CalendarGrid(
+                        cells = monthUiState.cells,
+                        summariesByDay = calendarData.summariesByDay,
+                        chineseLabels = monthUiState.chineseLabels,
+                        selectedDayStart = selectedForPage,
+                        onDaySelected = { dayStart ->
+                            preferredDayOfMonth = dayStart.localDayOfMonth()
+                            selectedDayStart = dayStart
+                        },
                     )
                 }
+            }
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
+        ) {
+            item(key = "selected-day-transactions") {
+                SelectedDayTransactionContent(
+                    dayStart = selectedDayStart,
+                    transactions = selectedTransactions,
+                    onTransactionClick = onTransactionClick,
+                )
             }
         }
     }
@@ -279,7 +340,7 @@ private fun CalendarTopBar(
             shape = RoundedCornerShape(15.dp),
         ) {
             Text(
-                "账本 ▾",
+                "账本 ▼",
                 modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
                 style = MaterialTheme.typography.titleMedium,
             )
@@ -310,23 +371,12 @@ private fun CalendarMonthHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CalendarArrow(Icons.Default.ChevronLeft, "上个月", onPrevious)
-        AnimatedContent(
-            targetState = label,
+        Text(
+            text = label,
             modifier = Modifier.weight(1f),
-            transitionSpec = {
-                fadeIn(tween(OneLedgerMotion.SelectionMillis)) togetherWith
-                    fadeOut(tween(OneLedgerMotion.NavigationExitMillis))
-            },
-            contentKey = { it },
-            label = "calendar-month-title",
-        ) { activeLabel ->
-            Text(
-                activeLabel,
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.headlineMedium,
-                textAlign = TextAlign.Center,
-            )
-        }
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center,
+        )
         CalendarArrow(Icons.Default.ChevronRight, "下个月", onNext)
     }
 }
@@ -357,56 +407,69 @@ private fun CalendarArrow(
 @Composable
 private fun CalendarGrid(
     cells: List<CalendarDateCell>,
-    summariesByDay: Map<String, CalendarDaySummary>,
+    summariesByDay: Map<Long, CalendarDaySummary>,
     chineseLabels: Map<Long, ChineseCalendarLabel>,
     selectedDayStart: Long,
     onDaySelected: (Long) -> Unit,
 ) {
     Column(Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            listOf("日", "一", "二", "三", "四", "五", "六").forEach { day ->
-                Text(
-                    text = day,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
+        WeekdayHeader()
         Spacer(Modifier.height(6.dp))
-        cells.chunked(7).forEachIndexed { rowIndex, week ->
+        repeat(6) { rowIndex ->
             if (rowIndex > 0) Spacer(Modifier.height(3.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                week.forEach { cell ->
-                    val summary = summariesByDay[cell.startMillis.dayKey()]
-                    CalendarDayCell(
-                        cell = cell,
-                        chineseLabel = chineseLabels[cell.startMillis],
-                        expenseMinor = summary?.expenseMinor ?: 0,
-                        incomeMinor = summary?.incomeMinor ?: 0,
-                        selected = selectedDayStart == cell.startMillis,
-                        onClick = { if (cell.inCurrentMonth) onDaySelected(cell.startMillis) },
-                        modifier = Modifier.weight(1f),
-                    )
+                repeat(7) { columnIndex ->
+                    val cell = cells[rowIndex * 7 + columnIndex]
+                    key(cell.startMillis) {
+                        val summary = summariesByDay[cell.startMillis]
+                        CalendarDayCell(
+                            cell = cell,
+                            chineseLabel = chineseLabels[cell.startMillis],
+                            expenseMinor = summary?.expenseMinor ?: 0,
+                            incomeMinor = summary?.incomeMinor ?: 0,
+                            selected = selectedDayStart == cell.startMillis,
+                            onClick = { if (cell.inCurrentMonth) onDaySelected(cell.startMillis) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }
         Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("底色表示当日净收支：", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Box(Modifier.size(6.dp).background(ExpenseCoral, CircleShape))
-            Text(" 支出较多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.size(12.dp))
-            Box(Modifier.size(6.dp).background(IncomeMint, CircleShape))
-            Text(" 收入较多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CalendarLegend()
+    }
+}
+
+@Composable
+private fun WeekdayHeader() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        WeekdayLabels.forEach { day ->
+            Text(
+                text = day,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
+    }
+}
+
+@Composable
+private fun CalendarLegend() {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("底色表示当日净收支：", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.size(6.dp).background(ExpenseCoral, CircleShape))
+        Text(" 支出较多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.size(12.dp))
+        Box(Modifier.size(6.dp).background(IncomeMint, CircleShape))
+        Text(" 收入较多", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -428,16 +491,11 @@ private fun CalendarDayCell(
         incomeMinor > expenseMinor -> IncomeMint.copy(alpha = 0.16f)
         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)
     }
-    val background by animateColorAsState(
-        targetValue = targetBackground,
-        animationSpec = tween(140),
-        label = "calendar-selection",
-    )
-    PressableSurface(
+    Surface(
         onClick = onClick,
         enabled = cell.inCurrentMonth,
         modifier = modifier.height(58.dp),
-        color = background,
+        color = targetBackground,
         shape = RoundedCornerShape(11.dp),
     ) {
         Column(
@@ -499,36 +557,17 @@ private fun CalendarDayCell(
 }
 
 @Composable
-private fun SelectedDayTransactions(
-    dayStart: Long,
-    transactions: List<TransactionListItem>,
-    onTransactionClick: (String) -> Unit,
-) {
-    AnimatedContent(
-        targetState = dayStart to transactions,
-        transitionSpec = {
-            fadeIn(tween(OneLedgerMotion.ContentEnterMillis)) togetherWith
-                fadeOut(tween(OneLedgerMotion.ContentExitMillis))
-        },
-        contentKey = { it.first },
-        label = "calendar-selected-day",
-    ) { (activeDayStart, activeTransactions) ->
-        SelectedDayTransactionContent(
-            dayStart = activeDayStart,
-            transactions = activeTransactions,
-            onTransactionClick = onTransactionClick,
-        )
-    }
-}
-
-@Composable
 private fun SelectedDayTransactionContent(
     dayStart: Long,
     transactions: List<TransactionListItem>,
     onTransactionClick: (String) -> Unit,
 ) {
-    val expense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
-    val income = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountMinor }
+    val expense = remember(transactions) {
+        transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amountMinor }
+    }
+    val income = remember(transactions) {
+        transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amountMinor }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(dayStart.dayLabel(), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
@@ -548,15 +587,17 @@ private fun SelectedDayTransactionContent(
             } else {
                 Column {
                     transactions.forEachIndexed { index, transaction ->
-                        CalendarTransactionRow(
-                            transaction = transaction,
-                            onClick = { onTransactionClick(transaction.id) },
-                        )
-                        if (index != transactions.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 70.dp),
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                        key(transaction.id) {
+                            CalendarTransactionRow(
+                                transaction = transaction,
+                                onClick = { onTransactionClick(transaction.id) },
                             )
+                            if (index != transactions.lastIndex) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(start = 70.dp),
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                                )
+                            }
                         }
                     }
                 }
@@ -616,16 +657,78 @@ private fun CalendarTransactionRow(
     }
 }
 
+private fun buildCalendarDataIndex(
+    transactions: List<TransactionListItem>,
+): CalendarDataIndex {
+    val transactionsByDay = LinkedHashMap<Long, MutableList<TransactionListItem>>()
+    val summariesByDay = LinkedHashMap<Long, CalendarDaySummary>()
+    transactions.forEach { transaction ->
+        val dayStart = transaction.occurredAt.startOfLocalDay()
+        transactionsByDay.getOrPut(dayStart) { mutableListOf() }.add(transaction)
+        val previous = summariesByDay[dayStart] ?: CalendarDaySummary(0, 0)
+        summariesByDay[dayStart] = when (transaction.type) {
+            TransactionType.EXPENSE -> previous.copy(
+                expenseMinor = previous.expenseMinor + transaction.amountMinor,
+            )
+            TransactionType.INCOME -> previous.copy(
+                incomeMinor = previous.incomeMinor + transaction.amountMinor,
+            )
+            TransactionType.TRANSFER -> previous
+            else -> previous
+        }
+    }
+    return CalendarDataIndex(
+        transactionsByDay = transactionsByDay.mapValues { (_, value) -> value.toList() },
+        summariesByDay = summariesByDay,
+    )
+}
+
+private fun cachedCalendarMonth(start: Long): CalendarMonthUiState? =
+    synchronized(calendarMonthCache) { calendarMonthCache[start] }
+
+private fun calendarMonthSkeleton(
+    window: MonthWindow,
+    includeChineseLabels: Boolean,
+): CalendarMonthUiState {
+    val cells = window.calendarDateCells()
+    return CalendarMonthUiState(
+        window = window,
+        cells = cells,
+        chineseLabels = if (includeChineseLabels) {
+            cells.associate { cell -> cell.startMillis to cell.startMillis.chineseCalendarLabel() }
+        } else {
+            emptyMap()
+        },
+    )
+}
+
+private suspend fun loadCalendarMonth(
+    window: MonthWindow,
+    cells: List<CalendarDateCell>,
+): CalendarMonthUiState =
+    withContext(Dispatchers.Default) {
+        cachedCalendarMonth(window.start) ?: run {
+            CalendarMonthUiState(
+                window = window,
+                cells = cells,
+                chineseLabels = cells.associate { cell ->
+                    cell.startMillis to cell.startMillis.chineseCalendarLabel()
+                },
+            ).also { loaded ->
+                synchronized(calendarMonthCache) {
+                    calendarMonthCache[window.start] = loaded
+                }
+            }
+        }
+    }
+
 private fun Long.calendarAmount(): String {
     val major = this / 100.0
+    val formatter = requireNotNull(CalendarAmountFormat.get())
     return when {
-        major >= 1_000 -> DecimalFormat("0.#k").format(major / 1_000)
-        else -> DecimalFormat("0.#").format(major)
+        major >= 1_000 -> "${formatter.format(major / 1_000)}k"
+        else -> formatter.format(major)
     }
 }
 
 private fun TransactionListItem.timeLabelSafe(): String = occurredAt.timeLabel()
-
-private fun MonthWindow.defaultSelectedDay(nowMillis: Long): Long {
-    return if (nowMillis.isIn(this)) nowMillis.startOfLocalDay() else start
-}
