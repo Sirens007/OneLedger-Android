@@ -14,6 +14,8 @@ class AmountCalculatorStateTest {
 
         assertEquals("15", state.resolvedAmount())
         assertEquals("12 +", state.expressionPrefix)
+        assertEquals("12", state.expressionAmount)
+        assertEquals("+", state.expressionOperator)
         assertEquals("3", state.displayAmount)
     }
 

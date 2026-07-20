@@ -6,8 +6,9 @@ import org.junit.Test
 
 class QuickAddKeyboardStateTest {
     @Test
-    fun amountFocusOwnsTheCustomKeyboardEvenWhileImeIsFinishing() {
-        val state = QuickAddKeyboardState.from(
+    fun customModeNeverReportsSystemImeEvenWhileImeIsFinishing() {
+        val state = QuickAddKeyboardState(
+            mode = KeyboardMode.CUSTOM_NUMBER,
             currentFocusField = QuickAddFocusField.AMOUNT,
             imeVisible = true,
         )
@@ -17,12 +18,14 @@ class QuickAddKeyboardStateTest {
     }
 
     @Test
-    fun noteFocusOnlyReportsSystemKeyboardAfterImeBecomesVisible() {
-        val waiting = QuickAddKeyboardState.from(
+    fun systemModeOnlyReportsVisibleAfterImeActuallyAppears() {
+        val waiting = QuickAddKeyboardState(
+            mode = KeyboardMode.SYSTEM_IME,
             currentFocusField = QuickAddFocusField.NOTE,
             imeVisible = false,
         )
-        val visible = QuickAddKeyboardState.from(
+        val visible = QuickAddKeyboardState(
+            mode = KeyboardMode.SYSTEM_IME,
             currentFocusField = QuickAddFocusField.NOTE,
             imeVisible = true,
         )
@@ -31,5 +34,17 @@ class QuickAddKeyboardStateTest {
         assertFalse(waiting.systemKeyboardVisible)
         assertFalse(visible.customKeyboardVisible)
         assertTrue(visible.systemKeyboardVisible)
+    }
+
+    @Test
+    fun handoffModeReportsNeitherKeyboard() {
+        val state = QuickAddKeyboardState(
+            mode = KeyboardMode.NONE,
+            currentFocusField = QuickAddFocusField.AMOUNT,
+            imeVisible = true,
+        )
+
+        assertFalse(state.customKeyboardVisible)
+        assertFalse(state.systemKeyboardVisible)
     }
 }

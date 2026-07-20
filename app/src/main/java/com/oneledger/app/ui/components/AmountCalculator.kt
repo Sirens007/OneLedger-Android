@@ -19,6 +19,12 @@ internal data class AmountCalculatorState(
             null
         }
 
+    val expressionAmount: String?
+        get() = accumulator?.takeIf { pendingOperator != null && current.isNotBlank() }
+
+    val expressionOperator: String?
+        get() = pendingOperator?.takeIf { accumulator != null && current.isNotBlank() }
+
     val trailingOperator: String?
         get() = pendingOperator?.takeIf { current.isBlank() }
 

@@ -6,13 +6,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,9 +34,13 @@ import androidx.compose.foundation.layout.imeAnimationSource
 import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -51,13 +54,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.AccountBalanceWallet
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
@@ -80,8 +81,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -128,6 +131,13 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.first
+
+internal enum class KeyboardMode {
+    NONE,
+    CUSTOM_NUMBER,
+    SYSTEM_IME,
+}
 
 internal enum class QuickAddFocusField {
     AMOUNT,
@@ -135,23 +145,31 @@ internal enum class QuickAddFocusField {
 }
 
 internal data class QuickAddKeyboardState(
-    val customKeyboardVisible: Boolean,
-    val systemKeyboardVisible: Boolean,
+    val mode: KeyboardMode,
     val currentFocusField: QuickAddFocusField,
+    val imeVisible: Boolean,
 ) {
-    companion object {
-        fun from(
-            currentFocusField: QuickAddFocusField,
-            imeVisible: Boolean,
-        ): QuickAddKeyboardState = QuickAddKeyboardState(
-            customKeyboardVisible = currentFocusField == QuickAddFocusField.AMOUNT,
-            systemKeyboardVisible = imeVisible && currentFocusField == QuickAddFocusField.NOTE,
-            currentFocusField = currentFocusField,
-        )
-    }
+    val customKeyboardVisible: Boolean
+        get() = mode == KeyboardMode.CUSTOM_NUMBER
+
+    val systemKeyboardVisible: Boolean
+        get() = mode == KeyboardMode.SYSTEM_IME && imeVisible
 }
 
 private val QuickAddCustomKeyboardHeight = 231.dp
+
+private object KeyboardKeyStyle {
+    val Height = 50.dp
+    val CornerRadius = 15.dp
+    val GlyphFontSize = 26.sp
+    val GlyphLineHeight = 30.sp
+    val DecimalFontSize = 30.sp
+    val DeleteIconSize = 22.dp
+    val FunctionIconSize = 18.dp
+    val FunctionFontSize = 16.sp
+    val GlyphWeight = FontWeight.SemiBold
+    val SelectedGlyphWeight = FontWeight.Bold
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -174,6 +192,7 @@ fun QuickAddSheet(
         containerColor = MaterialTheme.colorScheme.background,
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
         dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
     ) {
         QuickAddContent(
             accounts = accounts,
@@ -218,7 +237,20 @@ private fun QuickAddContent(
     var accumulator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var pendingOperator by rememberSaveable(editKey) { mutableStateOf<String?>(null) }
     var note by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.note.orEmpty()) }
-    var currentFocusField by rememberSaveable(editKey) { mutableStateOf(QuickAddFocusField.AMOUNT) }
+    var requestedFocusField by rememberSaveable(editKey) { mutableStateOf(QuickAddFocusField.AMOUNT) }
+    var currentFocusField by remember(editKey) { mutableStateOf(requestedFocusField) }
+    var keyboardMode by remember(editKey) {
+        mutableStateOf(
+            if (requestedFocusField == QuickAddFocusField.AMOUNT) {
+                KeyboardMode.CUSTOM_NUMBER
+            } else {
+                KeyboardMode.SYSTEM_IME
+            },
+        )
+    }
+    val customKeyboardAnimation = remember(editKey) {
+        Animatable(if (requestedFocusField == QuickAddFocusField.AMOUNT) 1f else 0f)
+    }
     var awaitingSystemIme by remember(editKey) { mutableStateOf(false) }
     var selectedCategoryId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.categoryId) }
     var selectedAccountId by rememberSaveable(editKey) { mutableStateOf(initialTransaction?.accountId) }
@@ -248,15 +280,23 @@ private fun QuickAddContent(
         else -> selectedCategoryId != null
     }
     val systemKeyboardVisible = WindowInsets.isImeVisible
-    val keyboardState = QuickAddKeyboardState.from(
+    val keyboardState = QuickAddKeyboardState(
+        mode = keyboardMode,
         currentFocusField = currentFocusField,
         imeVisible = systemKeyboardVisible,
     )
+    val imeBottom = WindowInsets.ime.getBottom(density)
     val imeAnimationSourceBottom = WindowInsets.imeAnimationSource.getBottom(density)
     val imeAnimationTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
     val imeOpening = imeAnimationTargetBottom > imeAnimationSourceBottom
-    val preserveKeyboardFloor = currentFocusField == QuickAddFocusField.NOTE &&
-        (awaitingSystemIme || imeOpening)
+    val imeOccupyingSpace = systemKeyboardVisible ||
+        imeBottom > 0 ||
+        imeAnimationSourceBottom > 0 ||
+        imeAnimationTargetBottom > 0
+    val imeOccupyingSpaceState by rememberUpdatedState(imeOccupyingSpace)
+    val customKeyboardHeightPx = with(density) { QuickAddCustomKeyboardHeight.roundToPx() }
+    val preserveKeyboardFloor = keyboardMode == KeyboardMode.NONE ||
+        (keyboardMode == KeyboardMode.SYSTEM_IME && (awaitingSystemIme || imeOpening))
 
     DisposableEffect(hostView) {
         val dialogWindow = ((hostView.parent as? DialogWindowProvider) ?: (hostView as? DialogWindowProvider))?.window
@@ -267,21 +307,65 @@ private fun QuickAddContent(
         }
     }
 
-    LaunchedEffect(editKey) {
-        when (currentFocusField) {
-            QuickAddFocusField.AMOUNT -> amountFocusRequester.requestFocus()
+    LaunchedEffect(editKey, requestedFocusField) {
+        when (requestedFocusField) {
             QuickAddFocusField.NOTE -> {
-                awaitingSystemIme = true
-                noteFocusRequester.requestFocus()
-                keyboardController?.show()
+                // The custom keypad leaves first. Only then may the text field own focus and open IME.
+                keyboardMode = KeyboardMode.NONE
+                awaitingSystemIme = false
+                customKeyboardAnimation.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = OneLedgerMotion.NoBounceDamping,
+                        stiffness = OneLedgerMotion.KeyboardStiffness,
+                    ),
+                )
+                if (requestedFocusField == QuickAddFocusField.NOTE) {
+                    keyboardMode = KeyboardMode.SYSTEM_IME
+                    awaitingSystemIme = true
+                    noteFocusRequester.requestFocus()
+                    keyboardController?.show()
+                }
+            }
+
+            QuickAddFocusField.AMOUNT -> {
+                // Hold the dock height while IME closes, then reveal the custom keypad from its live position.
+                keyboardMode = KeyboardMode.NONE
+                awaitingSystemIme = false
+                amountFocusRequester.requestFocus()
+                keyboardController?.hide()
+                if (imeOccupyingSpaceState) {
+                    snapshotFlow { imeOccupyingSpaceState }.first { occupying -> !occupying }
+                }
+                if (requestedFocusField == QuickAddFocusField.AMOUNT) {
+                    keyboardMode = KeyboardMode.CUSTOM_NUMBER
+                    customKeyboardAnimation.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = OneLedgerMotion.NoBounceDamping,
+                            stiffness = OneLedgerMotion.KeyboardStiffness,
+                        ),
+                    )
+                }
             }
         }
     }
-    LaunchedEffect(currentFocusField, systemKeyboardVisible, imeAnimationTargetBottom) {
-        if (currentFocusField == QuickAddFocusField.AMOUNT ||
-            systemKeyboardVisible ||
-            imeAnimationTargetBottom > 0
+    LaunchedEffect(
+        keyboardMode,
+        systemKeyboardVisible,
+        imeBottom,
+        imeAnimationSourceBottom,
+        imeAnimationTargetBottom,
+    ) {
+        if (keyboardMode != KeyboardMode.SYSTEM_IME) {
+            awaitingSystemIme = false
+        } else if (
+            imeBottom >= customKeyboardHeightPx ||
+            (systemKeyboardVisible &&
+                imeAnimationTargetBottom > 0 &&
+                imeAnimationSourceBottom == imeAnimationTargetBottom)
         ) {
+            // Do not release the shared floor until IME can replace it without a height dip.
             awaitingSystemIme = false
         }
     }
@@ -390,36 +474,25 @@ private fun QuickAddContent(
         Spacer(Modifier.height(8.dp))
         AmountPanel(
             amount = calculatorState.displayAmount,
-            expressionPrefix = calculatorState.expressionPrefix,
+            expressionAmount = calculatorState.expressionAmount,
+            expressionOperator = calculatorState.expressionOperator,
             trailingOperator = calculatorState.trailingOperator,
             accent = accent,
             note = note,
             occurredAt = occurredAt,
+            keyboardMode = keyboardMode,
             amountFocusRequester = amountFocusRequester,
             noteFocusRequester = noteFocusRequester,
             onNoteChange = { if (it.length <= 60) note = it },
             onNoteFocusChanged = { focused ->
-                if (focused) {
-                    currentFocusField = QuickAddFocusField.NOTE
-                    awaitingSystemIme = true
-                    keyboardController?.show()
-                }
+                if (focused) currentFocusField = QuickAddFocusField.NOTE
             },
             onAmountFocusChanged = { focused ->
                 if (focused) currentFocusField = QuickAddFocusField.AMOUNT
             },
-            onAmountClick = {
-                currentFocusField = QuickAddFocusField.AMOUNT
-                awaitingSystemIme = false
-                amountFocusRequester.requestFocus()
-                keyboardController?.hide()
-            },
-            onNoteDone = {
-                currentFocusField = QuickAddFocusField.AMOUNT
-                awaitingSystemIme = false
-                amountFocusRequester.requestFocus()
-                keyboardController?.hide()
-            },
+            onAmountClick = { requestedFocusField = QuickAddFocusField.AMOUNT },
+            onNoteRequest = { requestedFocusField = QuickAddFocusField.NOTE },
+            onNoteDone = { requestedFocusField = QuickAddFocusField.AMOUNT },
             onDateClick = { showDateTimePicker = true },
         )
         if (!errorMessage.isNullOrBlank()) {
@@ -436,6 +509,7 @@ private fun QuickAddContent(
         QuickAddKeyboardDock(
             state = keyboardState,
             preserveSystemHandoffFloor = preserveKeyboardFloor,
+            customKeyboardProgress = { customKeyboardAnimation.value },
             accent = accent,
             pendingOperator = pendingOperator,
             canSave = canSave,
@@ -703,17 +777,20 @@ private fun QuickOptionChip(
 @Composable
 private fun AmountPanel(
     amount: String,
-    expressionPrefix: String?,
+    expressionAmount: String?,
+    expressionOperator: String?,
     trailingOperator: String?,
     accent: Color,
     note: String,
     occurredAt: Long,
+    keyboardMode: KeyboardMode,
     amountFocusRequester: FocusRequester,
     noteFocusRequester: FocusRequester,
     onNoteChange: (String) -> Unit,
     onNoteFocusChanged: (Boolean) -> Unit,
     onAmountFocusChanged: (Boolean) -> Unit,
     onAmountClick: () -> Unit,
+    onNoteRequest: () -> Unit,
     onNoteDone: () -> Unit,
     onDateClick: () -> Unit,
 ) {
@@ -727,17 +804,23 @@ private fun AmountPanel(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 11.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
             ) {
-                Text("¥", style = MaterialTheme.typography.headlineMedium, color = accent)
+                Text(
+                    text = "¥",
+                    modifier = Modifier.alignByBaseline(),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = accent,
+                )
                 AmountValueButton(
                     amount = amount,
-                    expressionPrefix = expressionPrefix,
+                    expressionAmount = expressionAmount,
+                    expressionOperator = expressionOperator,
                     trailingOperator = trailingOperator,
                     accent = accent,
                     focusRequester = amountFocusRequester,
                     onFocusChanged = onAmountFocusChanged,
                     onClick = onAmountClick,
+                    modifier = Modifier.alignByBaseline(),
                 )
             }
             Spacer(Modifier.height(7.dp))
@@ -761,45 +844,62 @@ private fun AmountPanel(
                         )
                     }
                 }
-                BasicTextField(
-                    value = note,
-                    onValueChange = onNoteChange,
+                Box(
                     modifier = Modifier
                         .padding(start = 10.dp)
-                        .weight(1f)
-                        .focusRequester(noteFocusRequester)
-                        .onFocusChanged { onNoteFocusChanged(it.isFocused) },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = { onNoteDone() },
-                    ),
-                    decorationBox = { innerTextField ->
+                        .weight(1f),
+                ) {
+                    BasicTextField(
+                        value = note,
+                        onValueChange = onNoteChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(noteFocusRequester)
+                            .onFocusChanged { onNoteFocusChanged(it.isFocused) },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { onNoteDone() },
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                if (note.isBlank()) {
+                                    Text(
+                                        "点击填写备注",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                    if (keyboardMode != KeyboardMode.SYSTEM_IME) {
+                        val noteInteractionSource = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            if (note.isBlank()) {
-                                Text(
-                                    "点击填写备注",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            innerTextField()
-                        }
-                    },
-                )
+                                .matchParentSize()
+                                .clickable(
+                                    interactionSource = noteInteractionSource,
+                                    indication = null,
+                                    onClick = onNoteRequest,
+                                ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -808,12 +908,14 @@ private fun AmountPanel(
 @Composable
 private fun AmountValueButton(
     amount: String,
-    expressionPrefix: String?,
+    expressionAmount: String?,
+    expressionOperator: String?,
     trailingOperator: String?,
     accent: Color,
     focusRequester: FocusRequester,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -826,7 +928,7 @@ private fun AmountValueButton(
         label = "amount-press-feedback",
     )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .padding(start = 2.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { onFocusChanged(it.isFocused) }
@@ -841,27 +943,56 @@ private fun AmountValueButton(
                 onClick = onClick,
             )
             .padding(top = 3.dp, end = 8.dp, bottom = 3.dp),
-        verticalAlignment = Alignment.Bottom,
     ) {
-        expressionPrefix?.let {
+        expressionAmount?.let {
             Text(
-                text = "$it  ",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.titleMedium,
+                text = it,
+                modifier = Modifier.alignByBaseline(),
+                color = accent.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 27.sp,
+                    lineHeight = 34.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                maxLines = 1,
+            )
+            Text(
+                text = expressionOperator.orEmpty(),
+                modifier = Modifier
+                    .padding(horizontal = 7.dp)
+                    .alignByBaseline(),
+                color = accent.copy(alpha = 0.86f),
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 29.sp,
+                    lineHeight = 34.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
                 maxLines = 1,
             )
         }
         Text(
             text = amount.ifBlank { "0.00" },
-            style = MaterialTheme.typography.displaySmall.copy(fontSize = 36.sp),
+            modifier = Modifier.alignByBaseline(),
+            style = MaterialTheme.typography.displaySmall.copy(
+                fontSize = 36.sp,
+                lineHeight = 40.sp,
+            ),
             color = accent,
             maxLines = 1,
         )
         trailingOperator?.let {
             Text(
-                text = "  $it",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.titleLarge,
+                text = it,
+                modifier = Modifier
+                    .padding(start = 7.dp)
+                    .alignByBaseline(),
+                color = accent.copy(alpha = 0.86f),
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 29.sp,
+                    lineHeight = 34.sp,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                maxLines = 1,
             )
         }
     }
@@ -872,6 +1003,7 @@ private fun AmountValueButton(
 private fun QuickAddKeyboardDock(
     state: QuickAddKeyboardState,
     preserveSystemHandoffFloor: Boolean,
+    customKeyboardProgress: () -> Float,
     accent: Color,
     pendingOperator: String?,
     canSave: Boolean,
@@ -883,18 +1015,6 @@ private fun QuickAddKeyboardDock(
     onDone: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val transition = updateTransition(targetState = state, label = "quick-add-keyboard-state")
-    val customKeyboardProgress by transition.animateFloat(
-        transitionSpec = {
-            spring(
-                dampingRatio = OneLedgerMotion.NoBounceDamping,
-                stiffness = OneLedgerMotion.KeyboardStiffness,
-            )
-        },
-        label = "custom-keyboard-progress",
-    ) { keyboardState ->
-        if (keyboardState.customKeyboardVisible) 1f else 0f
-    }
     val keyboardFloor by animateDpAsState(
         targetValue = if (state.customKeyboardVisible || preserveSystemHandoffFloor) {
             QuickAddCustomKeyboardHeight
@@ -911,6 +1031,7 @@ private fun QuickAddKeyboardDock(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
             .heightIn(min = keyboardFloor)
             .clipToBounds(),
         contentAlignment = Alignment.BottomCenter,
@@ -928,8 +1049,9 @@ private fun QuickAddKeyboardDock(
                     .fillMaxWidth()
                     .height(QuickAddCustomKeyboardHeight)
                     .graphicsLayer {
-                        alpha = customKeyboardProgress
-                        translationY = size.height * (1f - customKeyboardProgress)
+                        val progress = customKeyboardProgress().coerceIn(0f, 1f)
+                        alpha = progress
+                        translationY = size.height * (1f - progress)
                     },
             ) {
                 Spacer(Modifier.height(10.dp))
@@ -998,7 +1120,7 @@ private fun CalculatorPad(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp),
+                            .height(KeyboardKeyStyle.Height),
                         color = when {
                             primary -> accent
                             key == "删除" -> ExpenseCoral.copy(alpha = 0.16f)
@@ -1007,40 +1129,56 @@ private fun CalculatorPad(
                             operator -> MaterialTheme.colorScheme.surfaceVariant
                             else -> MaterialTheme.colorScheme.surface
                         },
-                        shape = RoundedCornerShape(15.dp),
+                        shape = RoundedCornerShape(KeyboardKeyStyle.CornerRadius),
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             when (key) {
-                                "+" -> Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = "加",
-                                    modifier = Modifier.size(24.dp),
-                                    tint = if (selectedOperator) accent else MaterialTheme.colorScheme.onSurface,
-                                )
-                                "−" -> Icon(
-                                    Icons.Default.Remove,
-                                    contentDescription = "减",
-                                    modifier = Modifier.size(24.dp),
-                                    tint = if (selectedOperator) accent else MaterialTheme.colorScheme.onSurface,
+                                "+", "−" -> Text(
+                                    text = key,
+                                    color = if (selectedOperator) accent else MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = KeyboardKeyStyle.GlyphFontSize,
+                                        lineHeight = KeyboardKeyStyle.GlyphLineHeight,
+                                        fontWeight = if (selectedOperator) {
+                                            KeyboardKeyStyle.SelectedGlyphWeight
+                                        } else {
+                                            KeyboardKeyStyle.GlyphWeight
+                                        },
+                                    ),
                                 )
                                 "⌫" -> Icon(
                                     Icons.AutoMirrored.Filled.Backspace,
                                     contentDescription = "退格",
-                                    modifier = Modifier.size(24.dp),
+                                    modifier = Modifier.size(KeyboardKeyStyle.DeleteIconSize),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 primaryAction -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Text(primaryAction, modifier = Modifier.padding(start = 4.dp), fontWeight = FontWeight.Bold)
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(KeyboardKeyStyle.FunctionIconSize),
+                                    )
+                                    Text(
+                                        primaryAction,
+                                        modifier = Modifier.padding(start = 4.dp),
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontSize = KeyboardKeyStyle.FunctionFontSize,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    )
                                 }
                                 else -> Text(
                                     key,
-                                    style = if (secondary) {
-                                        MaterialTheme.typography.labelLarge
-                                    } else {
-                                        MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp)
-                                    },
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = when {
+                                            secondary -> KeyboardKeyStyle.FunctionFontSize
+                                            key == "." -> KeyboardKeyStyle.DecimalFontSize
+                                            else -> KeyboardKeyStyle.GlyphFontSize
+                                        },
+                                        lineHeight = KeyboardKeyStyle.GlyphLineHeight,
+                                        fontWeight = if (secondary) FontWeight.Bold else KeyboardKeyStyle.GlyphWeight,
+                                    ),
                                     color = if (key == "删除") ExpenseCoral else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = if (secondary) FontWeight.Bold else FontWeight.Medium,
                                 )
                             }
                         }
